@@ -1,0 +1,6 @@
+{
+  "rule": [
+    { "action": { "type": "Delete" }, "condition": { "age": 1, "matchesPrefix": ["inbox/"] } },
+    { "action": { "type": "Delete" }, "condition": { "age": 7, "matchesPrefix": ["assistant-shares/"] } }
+  ]
+}
