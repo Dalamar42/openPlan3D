@@ -12,8 +12,10 @@ package, 7-day retention, code + hashed secret, own quota ledger),
 `DELETE /api/assistant-shares/CODE`, and a stateless `POST /mcp` with four
 read-only tools over `src/lib/skills/`, the TypeScript ports of the native
 skill scripts with parity fixtures. See `docs/assistant-shares.md` for limits
-and the deployment order (lifecycle rule first, then the flag). Open: client
-Share with Assistant actions, web Export entry, ChatGPT check.
+and the deployment order (lifecycle rule first, then the flag). The web Export
+menu has Share with Assistant (dialog, client service, en/pt strings, two
+tests); the native action is openplan3d-ios PR #22. Open: enable in
+production, ChatGPT check.
 
 ## Derived statistics in exported plan.json — September 16
 

@@ -100,9 +100,17 @@ path.
 Turning the feature off is the same variable set back to `"false"`; stored
 shares then age out by lifecycle.
 
+## Clients
+
+The web editor's Export menu has **Share with Assistant…**
+(`AssistantShareDialog.svelte`, `src/lib/services/assistantShare.ts`): an
+include-photos checkbox, a plain statement of what is uploaded and for how
+long, then the code and secret shown once with copy buttons, the connector
+URL and a remove-now link. The iPhone/iPad/Mac app has the same action in the
+review screen's export menu (native repository, `AssistantShareService`).
+
 ## Not in this change
 
-The iPhone/Mac **Share with Assistant** action and the web Export menu entry
-are separate client changes. ChatGPT has not been tested against `/mcp`.
+ChatGPT has not been tested against `/mcp`.
 The storage rules deny public access to `assistant-shares/` through the
 catch-all rule; the server uses the runtime identity.
