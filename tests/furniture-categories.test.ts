@@ -56,7 +56,8 @@ it('retains categories, IDs, fractional geometry and unknown fields through repe
   const store = createLocalStore(); await store.save(project); project = (await store.load(project.id))!;
   for (let pass = 0; pass < 3; pass++) {
     const bytes = projectPackageBytes(project);
-    expect(packageJSON(readPackageZip(bytes)['plan.json'])).toEqual(original);
+    const { statistics, ...returned } = packageJSON(readPackageZip(bytes)['plan.json']);
+    expect(returned).toEqual(original); expect(statistics.version).toBe(1);
     project = readProjectPackage(bytes).project;
   }
   project.floors[0].furniture.forEach(item => { item.width = 122.875; item.rotation = 32.75; item.details = { ...item.details, note: 'Web edit' }; });

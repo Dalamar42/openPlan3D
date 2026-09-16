@@ -4,6 +4,15 @@ The user-facing goal status is maintained in [STATUS.md](STATUS.md). Update it
 when implementation, validation, blockers or next priorities change; keep this
 file as the detailed backlog and evidence history.
 
+## Derived statistics in exported plan.json — September 16
+
+Web package export now writes the same `statistics` block the native app added
+in openplan3d-ios PR #17: plan totals, per-level totals, per-room interior-face
+areas and costs, recomputed on every export and never read back. A stale block
+in an imported native package is replaced; `baseline.json` excludes it. See
+`src/lib/utils/planStatistics.ts` and `tests/planStatistics.test.ts`; the two
+exact plan-equality tests now compare everything except the derived block.
+
 ## September 13, 00:20 EDT — user-requested pause
 
 Implementation and validation are paused until access to the Asta 6 model is

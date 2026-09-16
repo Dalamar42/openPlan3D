@@ -207,7 +207,9 @@ it('imports native edits, notes and photos without losing unknown native data on
   expect(preview.project.floors[0].backgroundImage?.scale).toBe(600);
   expect(preview.project.description).toBe(plan.planNotes);
   const exported = readPackageZip(projectPackageBytes(preview.project)), again = packageJSON(exported['plan.json']);
-  expect(again).toEqual(plan);
+  const { statistics, ...returned } = again;
+  expect(returned).toEqual(plan);
+  expect(statistics.version).toBe(1); expect(statistics.totals.wallCount).toBe(plan.walls.length);
   expect(exported['assets/chair.png']).toEqual(pixel); expect(exported['assets/orphan.png']).toEqual(pixel);
   const after = readProjectPackage(projectPackageBytes(preview.project));
   expect(after.project.floors[0].walls[0].thickness).toBe(27.5);
