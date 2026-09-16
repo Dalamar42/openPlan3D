@@ -24,10 +24,10 @@ env:
     value: openplan3d.firebasestorage.app
     availability:
       - RUNTIME
-  # Assistant shares (docs/assistant-shares.md). Flip to "true" only after the
-  # 7-day assistant-shares/ lifecycle rule is applied to the bucket.
+  # Assistant shares (docs/assistant-shares.md). The 7-day assistant-shares/
+  # lifecycle rule was applied to the bucket on September 16, 2026.
   - variable: ASSISTANT_SHARES_ENABLED
-    value: "false"
+    value: "true"
     availability:
       - RUNTIME
   - variable: NODE_ENV
