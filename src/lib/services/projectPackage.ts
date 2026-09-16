@@ -2,6 +2,7 @@ import type { Project } from '$lib/models/types';
 import { readProject } from '$lib/utils/projectValidation';
 import { PACKAGE_LIMIT, jsonBytes, packageJSON, packageError, readPackageZip, writePackageZip, safePackagePath, crc32 } from '$lib/utils/projectPackageZip';
 import { applyNativeEdits, nativeAssetNames, nativeToWeb, validatePackageMapping, validatePackagePlan, webToNative, type PackageMapping } from '$lib/utils/projectPackageBridge';
+import { planStatistics } from '$lib/utils/planStatistics';
 import { prepareLibraryRestore } from './libraryRestore';
 import type { DetailKind } from '$lib/models/types';
 import { upgradeLegacyFurnitureCategories } from '$lib/utils/legacyFurnitureCategories';
@@ -61,6 +62,9 @@ export function projectPackageBytes(value: Project): Uint8Array {
   validateLocalImages(project);
   delete (project as any).projectPackage;
   const { plan, mapping } = webToNative(project, state?.native, state?.mapping);
+  // Derived on every export; a retained block from an older package is replaced, never carried.
+  plan.statistics = planStatistics(project, plan, mapping);
+  const planWithoutStatistics = { ...plan }; delete planWithoutStatistics.statistics;
   const assets: Record<string, Uint8Array> = Object.create(null);
   let assetSize = 0;
   if (Object.keys(state?.assets ?? {}).length > 507) packageError('Too many attachments.');
@@ -96,7 +100,7 @@ export function projectPackageBytes(value: Project): Uint8Array {
   return writePackageZip({
     'manifest.json': jsonBytes({ format: 'openplan3d-project', version: 1, producer: 'web', title: project.name }),
     'plan.json': jsonBytes(plan), 'web.json': jsonBytes(project),
-    'baseline.json': jsonBytes({ ...plan, openplanItemDetailsVersion: 1, openplanFurnitureCategoriesVersion: 1, openplanUnderlayFloorId: underlayFloorId, openplanAssetChecksums: Object.fromEntries(Object.entries(assets).map(([path, data]) => [path, crc32(data)])) }),
+    'baseline.json': jsonBytes({ ...planWithoutStatistics, openplanItemDetailsVersion: 1, openplanFurnitureCategoriesVersion: 1, openplanUnderlayFloorId: underlayFloorId, openplanAssetChecksums: Object.fromEntries(Object.entries(assets).map(([path, data]) => [path, crc32(data)])) }),
     'mapping.json': jsonBytes({ entries: mapping }), ...assets,
   });
 }

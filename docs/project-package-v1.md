@@ -17,6 +17,15 @@ A flat, versioned package has these entries:
 | `mapping.json` | Required with `web.json`: `entries` maps native UUIDs to the original web element/floor IDs |
 | `assets/<relative filename>` | Referenced photos/tracing image and retained original attachment bytes |
 
+Both producers also write a derived `statistics` object inside `plan.json`
+(`version` 1, `units` "metres", `totals`, per-level `levels`, per-room `rooms`
+with `floorArea` omitted when unmeasured, and `costs`). It is computed from the
+plan on every export and replaces any carried copy; importers ignore it, the
+web `baseline.json` never includes it, and native editor saves drop it. Room
+areas use each app's interior-face measurement (wall footprints excluded), so
+scripts and assistants can quote areas without re-implementing the room fill.
+Prices carry no currency.
+
 All three web-return files must occur together. Web exports always include them. Native exports preserve them byte-for-byte while replacing `plan.json` with the current edits. Native import retains the original JSON separately from normal editor saves, so unknown fields survive; recognized fields that the user clears are removed when exporting again.
 
 Web elements can have a `details` object for shared item metadata. Explicit `null` values clear retained optional native values; an empty `photos` array detaches all item photos. `attachmentNames` on the project retains readable labels for web-added files. Native output uses the existing PlanDocument fields and photo filenames, so the package format remains version 1.
