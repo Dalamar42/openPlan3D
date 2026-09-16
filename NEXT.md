@@ -4,6 +4,17 @@ The user-facing goal status is maintained in [STATUS.md](STATUS.md). Update it
 when implementation, validation, blockers or next priorities change; keep this
 file as the detailed backlog and evidence history.
 
+## Assistant shares and remote MCP server — September 16
+
+Option A of the hosted connector design is implemented server-side and
+disabled by default: `POST /api/assistant-shares` (validated, stripped
+package, 7-day retention, code + hashed secret, own quota ledger),
+`DELETE /api/assistant-shares/CODE`, and a stateless `POST /mcp` with four
+read-only tools over `src/lib/skills/`, the TypeScript ports of the native
+skill scripts with parity fixtures. See `docs/assistant-shares.md` for limits
+and the deployment order (lifecycle rule first, then the flag). Open: client
+Share with Assistant actions, web Export entry, ChatGPT check.
+
 ## Derived statistics in exported plan.json — September 16
 
 Web package export now writes the same `statistics` block the native app added

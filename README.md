@@ -224,6 +224,14 @@ The companion iOS app can share an edited plan or [Apple RoomPlan](https://devel
 
 During migration, [`storage.rules`](storage.rules) still permits legacy public creates below 10 MiB. **This bypasses aggregate admission limits until cutover.** The new endpoint enforces 1 MiB per capture, 100 reservations / 25 MiB per UTC day, and 10 reservations per minute. See [configuration, costs and the client migration gate](docs/handoff-quotas.md). These limits are not a cap on Firebase spending.
 
+### Assistant shares
+
+`POST /api/assistant-shares` accepts a whole project package for the assistant
+skills, keeps only the plan and referenced attachments for seven days, and returns
+a share code and secret. `POST /mcp` is a read-only Model Context Protocol server
+whose tools take that pair. Disabled until `ASSISTANT_SHARES_ENABLED` is `"true"`;
+see [docs/assistant-shares.md](docs/assistant-shares.md).
+
 ### One-time setup (project owner)
 
 1. **Enable Storage** for the `openplan3d` project in the [Firebase console](https://console.firebase.google.com/project/openplan3d/storage) if it isn't already.

@@ -34,13 +34,26 @@ export function parseQuotaState(value: unknown): QuotaState {
   return state;
 }
 
+export interface AdmissionLimits { maxBytes: number; dailyUploads: number; dailyBytes: number; minuteUploads: number }
+export interface AdmissionMessages { tooLarge: string; limited: string; busy: string }
+const HANDOFF_MESSAGES: AdmissionMessages = {
+  tooLarge: 'This plan is too large for link sharing. Use Export Editable Plan (JSON) instead.',
+  limited: 'Free link sharing has reached its limit. Use Export Editable Plan (JSON), or try again later.',
+  busy: 'Link sharing is busy. Use Export Editable Plan (JSON), or try again shortly.',
+};
+
 /** Reserve before writing a capture. Failed/uncertain writes remain charged;
  * releasing them could let retries exceed the daily cap. No process-local quota
  * is used as the source of truth: simultaneous App Hosting instances use CAS.
  */
-export async function reserveHandoff(store: QuotaStore, bytes: number, now = Date.now()): Promise<void> {
-  if (!Number.isSafeInteger(bytes) || bytes <= 0 || bytes > HANDOFF_LIMITS.maxBytes) {
-    throw new HandoffError(413, 'This plan is too large for link sharing. Use Export Editable Plan (JSON) instead.');
+export function reserveHandoff(store: QuotaStore, bytes: number, now = Date.now()): Promise<void> {
+  return reserveAdmission(store, bytes, HANDOFF_LIMITS, HANDOFF_MESSAGES, now);
+}
+
+/** Same ledger algorithm for any upload class; each class uses its own ledger object and limits. */
+export async function reserveAdmission(store: QuotaStore, bytes: number, limits: AdmissionLimits, messages: AdmissionMessages, now = Date.now()): Promise<void> {
+  if (!Number.isSafeInteger(bytes) || bytes <= 0 || bytes > limits.maxBytes) {
+    throw new HandoffError(413, messages.tooLarge);
   }
   const day = Math.floor(now / 86_400_000), minute = Math.floor(now / 60_000);
   for (let attempt = 0; attempt < 5; attempt++) {
@@ -54,12 +67,12 @@ export async function reserveHandoff(store: QuotaStore, bytes: number, now = Dat
       bytes: (state.day === day ? state.bytes : 0) + bytes,
       minuteUploads: (state.minute === minute ? state.minuteUploads : 0) + 1,
     };
-    const daily = next.uploads > HANDOFF_LIMITS.dailyUploads || next.bytes > HANDOFF_LIMITS.dailyBytes;
-    if (daily || next.minuteUploads > HANDOFF_LIMITS.minuteUploads) {
+    const daily = next.uploads > limits.dailyUploads || next.bytes > limits.dailyBytes;
+    if (daily || next.minuteUploads > limits.minuteUploads) {
       const window = daily ? 86_400_000 : 60_000;
-      throw new HandoffError(429, 'Free link sharing has reached its limit. Use Export Editable Plan (JSON), or try again later.', Math.max(1, Math.ceil((window - now % window) / 1000)));
+      throw new HandoffError(429, messages.limited, Math.max(1, Math.ceil((window - now % window) / 1000)));
     }
     if (await store.write(previous, next)) return;
   }
-  throw new HandoffError(503, 'Link sharing is busy. Use Export Editable Plan (JSON), or try again shortly.', 5);
+  throw new HandoffError(503, messages.busy, 5);
 }
