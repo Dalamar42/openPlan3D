@@ -109,8 +109,12 @@ long, then the code and secret shown once with copy buttons, the connector
 URL and a remove-now link. The iPhone/iPad/Mac app has the same action in the
 review screen's export menu (native repository, `AssistantShareService`).
 
-## Not in this change
+## Verified
 
-ChatGPT has not been tested against `/mcp`.
+September 16, 2026: production upload, all four tools, wrong-secret refusal,
+405 on GET and delete verified with curl; in claude.ai, a custom connector
+added with no sign-in listed the four tools, and a chat ran the summary and
+photo-review tools with per-call approval, reusing the code and secret from
+the first message. ChatGPT has not been tested against `/mcp`.
 The storage rules deny public access to `assistant-shares/` through the
 catch-all rule; the server uses the runtime identity.

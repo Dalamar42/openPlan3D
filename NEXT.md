@@ -14,8 +14,11 @@ read-only tools over `src/lib/skills/`, the TypeScript ports of the native
 skill scripts with parity fixtures. See `docs/assistant-shares.md` for limits
 and the deployment order (lifecycle rule first, then the flag). The web Export
 menu has Share with Assistant (dialog, client service, en/pt strings, two
-tests); the native action is openplan3d-ios PR #22. Open: enable in
-production, ChatGPT check.
+tests); the native action is openplan3d-ios PR #22. Enabled in production on
+September 16 (PR #98) after the bucket lifecycle rules were applied; a live
+curl check and a claude.ai chat with the custom connector (summary and photo
+review tools, approval prompts, no re-asking for the code) both passed.
+Open: ChatGPT check.
 
 ## Derived statistics in exported plan.json — September 16
 
