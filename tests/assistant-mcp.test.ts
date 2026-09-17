@@ -16,6 +16,7 @@ it('handshakes, lists four read-only tools and ignores notifications', async () 
   const tools = (await handleMcpMessage(rpc('tools/list'), { store }))!.result.tools;
   expect(tools.map((t: any) => t.name)).toEqual(['summarize_share', 'review_share_photos', 'handoff_share', 'list_share_files']);
   expect(mcpTools().every(t => t.inputSchema.required.includes('secret'))).toBe(true);
+  expect(mcpTools().every(t => t.annotations.readOnlyHint === true && t.annotations.destructiveHint === false)).toBe(true);
   expect(await handleMcpMessage(rpc('ping'), { store })).toMatchObject({ result: {} });
   expect(await handleMcpMessage(rpc('nonsense'), { store })).toMatchObject({ error: { code: -32601 } });
   expect(await handleMcpMessage('garbage', { store })).toMatchObject({ error: { code: -32600 } });

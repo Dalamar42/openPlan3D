@@ -115,6 +115,9 @@ September 16, 2026: production upload, all four tools, wrong-secret refusal,
 405 on GET and delete verified with curl; in claude.ai, a custom connector
 added with no sign-in listed the four tools, and a chat ran the summary and
 photo-review tools with per-call approval, reusing the code and secret from
-the first message. ChatGPT has not been tested against `/mcp`.
+the first message. In ChatGPT (Pro, Developer mode on), a custom MCP
+connector with No Auth discovered the tools, and a chat ran `summarize_share`
+after one allow prompt with a correct summary. Tools now carry read-only
+annotations so ChatGPT stops labelling them as write or destructive.
 The storage rules deny public access to `assistant-shares/` through the
 catch-all rule; the server uses the runtime identity.
