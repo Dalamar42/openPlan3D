@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { readFile } from 'node:fs/promises';
 import { savedProjects } from './storage';
 
@@ -12,13 +12,17 @@ test('downloaded capture survives initial save failure and retries without reimp
   await page.addInitScript(() => {
     localStorage.setItem('o3d_locale', 'pt');
     (window as any).failCaptureSave = !localStorage.getItem('captureSaveRecovered');
-    for (const method of ['put', 'add'] as const) {
-      const original = IDBObjectStore.prototype[method];
-      IDBObjectStore.prototype[method] = function(...args) {
-        if (this.name === 'projects' && (window as any).failCaptureSave) throw new DOMException('Full', 'QuotaExceededError');
-        return original.apply(this, args);
-      };
-    }
+    // Fail the project save at the network boundary (server PUT) with a
+    // QuotaExceededError, the server-store analogue of the old IndexedDB stub.
+    const original = window.fetch.bind(window);
+    window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
+      if ((window as any).failCaptureSave && method === 'PUT' && /\/api\/projects\/[^/]+$/.test(new URL(url, location.origin).pathname)) {
+        return Promise.reject(new DOMException('Full', 'QuotaExceededError'));
+      }
+      return original(input as RequestInfo, init);
+    };
   });
   await page.goto('/editor?import=AB2C');
   const alert = page.getByRole('alert');

@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Route } from '@playwright/test';
+import { expect, test, type Page, type Route } from './fixtures';
 import { createHash } from 'node:crypto';
 import { benchmarkProject } from '../fixtures/render-benchmark';
 import { savedProjects } from './storage';

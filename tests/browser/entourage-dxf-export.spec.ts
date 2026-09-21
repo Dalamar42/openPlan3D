@@ -1,4 +1,4 @@
-import {test,expect} from '@playwright/test';
+import {test,expect} from './fixtures';
 import {readFile} from 'node:fs/promises';
 import {benchmarkProject} from '../fixtures/render-benchmark';
 test('built-in entourage-only plans export editable DXF linework',async({page},testInfo)=>{

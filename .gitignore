@@ -7,6 +7,9 @@ node_modules
 .wrangler
 /.svelte-kit
 /build
+
+# Local server-side project store (OPENPLAN3D_DATA_DIR default in dev)
+/data
 /playwright-report
 /test-results
 /benchmark-results

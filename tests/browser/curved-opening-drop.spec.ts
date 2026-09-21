@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { readFile } from 'node:fs/promises';
 
 for (const method of ['drop', 'click']) for (const kind of ['door', 'window']) test(`${method} a ${kind} uses the curved wall path and supports Undo`, async ({ page }) => {

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 test('Portuguese palette searches without accents and executes after closing', async ({ page }) => {
   await page.addInitScript(() => {

@@ -10,9 +10,9 @@ import { disposeModel } from '$lib/utils/furnitureModelResources';
 import { projectPackageBytes, readProjectPackage } from '$lib/services/projectPackage';
 import { jsonBytes, packageJSON, readPackageZip, writePackageZip } from '$lib/utils/projectPackageZip';
 import { createProjectFromRoomPlan } from '$lib/utils/roomplanImport';
-import { createLocalStore } from '$lib/services/datastore';
+import { createServerStore } from '$lib/services/datastore';
 import { roomProject } from './fixtures/project';
-import { mockStorage } from './fixtures/indexeddb';
+import { mockStorage } from './fixtures/projectStore';
 
 beforeEach(() => { mockStorage(); });
 
@@ -53,7 +53,7 @@ it('preserves all exact catalog IDs independently of footprint size', () => {
 it('retains categories, IDs, fractional geometry and unknown fields through repeated native package returns', async () => {
   const files = nativeFiles(), original = packageJSON(files['plan.json']);
   let project = readProjectPackage(writePackageZip(files)).project;
-  const store = createLocalStore(); await store.save(project); project = (await store.load(project.id))!;
+  const store = createServerStore(); await store.save(project); project = (await store.load(project.id))!;
   for (let pass = 0; pass < 3; pass++) {
     const bytes = projectPackageBytes(project);
     const { statistics, ...returned } = packageJSON(readPackageZip(bytes)['plan.json']);

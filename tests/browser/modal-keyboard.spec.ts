@@ -1,20 +1,17 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type APIRequestContext, seedProjects } from './fixtures';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { storedRecords } from './storage';
 
 const id = 'qa-modal-keyboard';
-async function seed(page: Page, locale = 'en') {
-  await page.addInitScript(locale => localStorage.setItem('o3d_locale', locale), locale);
+async function seed(page: Page, request: APIRequestContext, locale = 'en') {
   const project = JSON.parse(await readFile('tests/fixtures/save-conflicts.openplan.json', 'utf8'));
   project.id = id; project.name = 'QA Modal Keyboard';
-  await page.addInitScript(project => {
-    if (!localStorage.getItem('qaModalSeeded')) {
-      localStorage.setItem('floorplan_projects', JSON.stringify({ [project.id]: JSON.stringify(project) }));
-      localStorage.setItem('hasSeenWelcome', 'true');
-      localStorage.setItem('qaModalSeeded', 'true');
-    }
-  }, project);
+  await seedProjects(request, { [id]: project });
+  await page.addInitScript(locale => {
+    localStorage.setItem('o3d_locale', locale);
+    localStorage.setItem('hasSeenWelcome', 'true');
+  }, locale);
   await page.goto(`/editor?id=${id}`);
   await page.getByRole('button', { name: locale === 'pt' ? 'Salvar' : 'Save', exact: true }).press('l');
   await page.getByRole('button', { name: locale === 'pt' ? '─ Parede 1' : '─ Wall 1', exact: true }).click();
@@ -44,10 +41,10 @@ async function focusInside(page: Page, name: string) {
   return dialog;
 }
 
-for (const width of [1440, 390]) test(`modal focus and keys preserve the selected plan at ${width}px`, async ({ page }, testInfo) => {
+for (const width of [1440, 390]) test(`modal focus and keys preserve the selected plan at ${width}px`, async ({ page, request }, testInfo) => {
   test.slow(); // Five dialogs, keyboard focus checks and exports on each round trip.
   await page.setViewportSize({ width, height: 900 });
-  const check = observe(page); await seed(page);
+  const check = observe(page); await seed(page, request);
   const before = await exported(page), stored = await storedRecords(page);
   for (const name of ['Settings', 'Version History', 'Area Summary', 'Keyboard Shortcuts', 'Print Preview']) {
     if (name === 'Print Preview') await page.getByRole('button', { name: 'Save', exact: true }).press('ControlOrMeta+p');
@@ -90,8 +87,8 @@ for (const width of [1440, 390]) test(`modal focus and keys preserve the selecte
   check();
 });
 
-for (const width of [1440, 390]) test(`command palette and modal field editing remain usable at ${width}px`, async ({ page }) => {
-  await page.setViewportSize({ width, height: 900 }); const check = observe(page); await seed(page);
+for (const width of [1440, 390]) test(`command palette and modal field editing remain usable at ${width}px`, async ({ page, request }) => {
+  await page.setViewportSize({ width, height: 900 }); const check = observe(page); await seed(page, request);
   const save = page.getByRole('button', { name: 'Save', exact: true });
   await save.press('ControlOrMeta+k');
   await focusInside(page, 'Command Palette');
@@ -125,8 +122,8 @@ for (const width of [1440, 390]) test(`command palette and modal field editing r
   check();
 });
 
-test('closing a dialog preserves elevation and 3D edit modes and print remains usable', async ({ page }) => {
-  const check = observe(page); await seed(page);
+test('closing a dialog preserves elevation and 3D edit modes and print remains usable', async ({ page, request }) => {
+  const check = observe(page); await seed(page, request);
   await page.getByRole('button', { name: 'Elevation', exact: true }).first().click();
   await toolbar(page, 'Version History'); await focusInside(page, 'Version History');
   await page.keyboard.press('Escape');
@@ -155,8 +152,8 @@ test('closing a dialog preserves elevation and 3D edit modes and print remains u
   check();
 });
 
-for (const locale of ['en', 'pt']) for (const width of [1440, 390]) test(`${locale}: RoomPlan cancellation and template modal focus stay local at ${width}px`, async ({ page }) => {
-  await page.setViewportSize({ width, height: 900 }); const check = observe(page); await seed(page, locale);
+for (const locale of ['en', 'pt']) for (const width of [1440, 390]) test(`${locale}: RoomPlan cancellation and template modal focus stay local at ${width}px`, async ({ page, request }) => {
+  await page.setViewportSize({ width, height: 900 }); const check = observe(page); await seed(page, request, locale);
   const before = await storedRecords(page);
   if (width < 768) await page.getByRole('button', { name: locale === 'pt' ? 'Alternar painel de ferramentas' : 'Toggle tools panel', exact: true }).click();
   const pending = page.waitForEvent('filechooser');

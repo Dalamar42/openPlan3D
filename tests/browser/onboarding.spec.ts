@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './fixtures';
 
 const exportMessage = 'Your plan is ready! Try SVG for vector graphics or PDF for printing.';
 const viewerMessage = 'Orbit with mouse, scroll to zoom. Try walkthrough mode!';

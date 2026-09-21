@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 test('language changes preserve the open settings dialog and survive reload', async ({ page }) => {
   await page.goto('/editor');

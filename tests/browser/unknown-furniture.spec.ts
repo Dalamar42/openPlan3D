@@ -1,4 +1,4 @@
-import {expect,test} from '@playwright/test';
+import {expect,test} from './fixtures';
 import {readFile} from 'node:fs/promises';
 for(const kind of ['saved','defaults']) {
   test(`unknown furniture remains visible and editable with ${kind} dimensions`,async({page},testInfo)=>{

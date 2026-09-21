@@ -1,11 +1,11 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, seedProjects } from './fixtures';
 import { readFile } from 'node:fs/promises';
 
-test('language changes redraw furniture captions without changing exported geometry', async ({ page }) => {
+test('language changes redraw furniture captions without changing exported geometry', async ({ page, request }) => {
   test.slow();
   const project = JSON.parse(await readFile('tests/fixtures/furniture-fidelity.openplan.json', 'utf8'));
-  await page.addInitScript(project => {
-    localStorage.setItem('floorplan_projects', JSON.stringify({ [project.id]: JSON.stringify(project) }));
+  await seedProjects(request, { [project.id]: project });
+  await page.addInitScript(() => {
     localStorage.setItem('o3d_locale', 'en');
     const captions = new Set<string>();
     (window as any).__furnitureCaptions = captions;
@@ -14,7 +14,7 @@ test('language changes redraw furniture captions without changing exported geome
       if (/^(Floor plan editor canvas|Área de edição da planta baixa)$/.test(this.canvas.getAttribute('aria-label') ?? '')) captions.add(String(args[0]));
       return original.apply(this, args);
     };
-  }, project);
+  });
   await page.goto(`/editor?id=${project.id}`);
   const saw = (name: string) => page.evaluate(name => (window as any).__furnitureCaptions.has(name), name);
   await expect.poll(() => saw('Armchair')).toBe(true);

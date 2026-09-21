@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 for (const width of [390, 1440]) test(`Portuguese view controls at ${width}px preserve toggle state`, async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('o3d_locale', 'pt'));

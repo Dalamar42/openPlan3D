@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { readFile } from 'node:fs/promises';
 
 test('symbol upload reports invalid images and recovers without changing prior project data', async ({ page }) => {

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { readFile } from 'node:fs/promises';
 for (const kind of ['mixed','entourage']) {
   test(`rotate the ${kind} selection rigidly with locks and undo`, async ({page}) => {

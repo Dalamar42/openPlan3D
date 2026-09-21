@@ -2,7 +2,7 @@
 
 **Free Open Source 2D/3D Floor Plan Editor**
 
-Design floor plans in an intuitive 2D editor, then instantly preview them in a fully navigable 3D view — all in your browser. No account required, no server dependency; your projects stay on your device.
+Design floor plans in an intuitive 2D editor, then instantly preview them in a fully navigable 3D view — all in your browser. No account required. Projects are saved to the server that hosts the app and are shared across your devices; the version-history and JSON backup / restore tools stay available for keeping your own copies.
 
 **🌐 Try it live: [app.openplan3d.com](https://app.openplan3d.com/)**
 

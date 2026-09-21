@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 test('Portuguese AI choices preserve provider prompt values without sending an image', async ({ page }) => {
   test.slow();

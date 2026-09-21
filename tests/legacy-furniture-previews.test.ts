@@ -1,13 +1,13 @@
 import { beforeEach, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { createLocalStore, ProjectConflictError } from '$lib/services/datastore';
+import { createServerStore, ProjectConflictError } from '$lib/services/datastore';
 import { readProject } from '$lib/utils/projectValidation';
 import { projectPackageBytes, readProjectPackage } from '$lib/services/projectPackage';
 import { packageJSON, readPackageZip } from '$lib/utils/projectPackageZip';
 import { currentProject, loadProject } from '$lib/stores/project';
 import { getSnapshots, restoreSnapshot } from '$lib/stores/versionHistory';
 import { get } from 'svelte/store';
-import { mockStorage, putRaw, rawRecords, failWrites } from './fixtures/indexeddb';
+import { mockStorage, putRaw, rawRecords, failWrites } from './fixtures/projectStore';
 
 const legacy = () => JSON.parse(readFileSync('tests/fixtures/legacy-furniture-previews.openplan.json', 'utf8'));
 beforeEach(() => { mockStorage(); });
@@ -17,7 +17,7 @@ it('refreshes legacy furniture when opening without writing stored project or hi
   await putRaw('projects', project.id, raw);
   await putRaw('history', project.id, JSON.stringify([{ timestamp: 1, description: 'Original', data: raw }]));
   const stored = await rawRecords(), history = await rawRecords('history');
-  const loaded = (await createLocalStore().load(project.id))!;
+  const loaded = (await createServerStore().load(project.id))!;
   expect(loaded.floors[0].furniture.map(item => item.catalogId)).toEqual(['sofa', 'stairs', 'bed_queen', 'desk', 'sink_b', 'washer_dryer', 'washer_dryer', 'imported_object']);
   expect(await rawRecords()).toEqual(stored);
   expect(await rawRecords('history')).toEqual(history);
@@ -36,7 +36,7 @@ it('changes only fallback presentation and its contract marker on an independent
 });
 
 it('preserves deliberate chair choices after normalization and a subsequent save/reload', async () => {
-  const project = legacy(), store = createLocalStore();
+  const project = legacy(), store = createServerStore();
   await putRaw('projects', project.id, JSON.stringify(project));
   const loaded = (await store.load(project.id))!;
   loaded.floors[0].furniture[2].catalogId = 'chair';
@@ -105,10 +105,10 @@ it('does not recreate deleted furniture and marks resolved legacy choices only o
 it('retains raw recovery bytes on failed saves and detects another tab even after normalization', async () => {
   const project = legacy(), raw = JSON.stringify(project);
   await putRaw('projects', project.id, raw);
-  const first = createLocalStore(), second = createLocalStore();
+  const first = createServerStore(), second = createServerStore();
   const a = (await first.load(project.id))!, b = (await second.load(project.id))!;
   const restore = failWrites();
-  await expect(first.save(a)).rejects.toMatchObject({ name: 'QuotaExceededError' });
+  await expect(first.save(a)).rejects.toThrow();
   expect((await rawRecords())[project.id]).toBe(raw);
   restore();
   b.name = 'Saved in another tab'; await second.save(b);
@@ -117,7 +117,7 @@ it('retains raw recovery bytes on failed saves and detects another tab even afte
 });
 
 it('normalizes restored version history without rewriting the archived snapshot', async () => {
-  const project = legacy(), raw = JSON.stringify(project), store = createLocalStore();
+  const project = legacy(), raw = JSON.stringify(project), store = createServerStore();
   await putRaw('projects', project.id, raw);
   await putRaw('history', project.id, JSON.stringify([{ timestamp: 1, description: 'Original', data: raw }]));
   loadProject((await store.load(project.id))!);

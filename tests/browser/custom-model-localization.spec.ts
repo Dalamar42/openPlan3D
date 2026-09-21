@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 test.setTimeout(180_000);
 test('Portuguese model controls retain user names and explain invalid sources and placed-model removal', async ({ page }, testInfo) => {

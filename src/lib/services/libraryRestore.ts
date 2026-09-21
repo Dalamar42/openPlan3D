@@ -1,6 +1,6 @@
 import { readProject } from '$lib/utils/projectValidation';
 import { readSnapshotStorage, writeSnapshotStorage } from '$lib/utils/snapshotStorage';
-import { migrateLegacy, notifyLibraryChange, request, transaction, withDatabase } from './localDatabase';
+import { notifyLibraryChange } from './libraryChange';
 
 type StringMap = Record<string, string>;
 type Version = { timestamp: number; description: string; data: string; [key: string]: unknown };
@@ -139,49 +139,53 @@ export function prepareLibraryRestore(raw: string, sourceName = 'Library backup'
   }
   if (archives.length) warnings.push(`${archives.length} recovery archive${archives.length === 1 ? '' : 's'} will be included in future library backups.`);
 
+  // Serialise the prepared candidates and archives into the four record maps the
+  // restore endpoint writes. The client owns id assignment (fresh UUIDs), so the
+  // server can refuse a colliding write and the caller regenerates and retries.
+  const buildPayload = () => {
+    const payload = { projects: {} as StringMap, thumbnails: {} as StringMap, history: {} as StringMap, meta: {} as StringMap };
+    const saved: { id: string; name: string }[] = [];
+    const used = new Set<string>();
+    const freshId = () => { let id: string; do { id = newId(); } while (used.has(id) || Object.hasOwn(projects, id)); used.add(id); return id; };
+    for (const candidate of candidates) {
+      const id = freshId();
+      const project = JSON.parse(candidate.raw);
+      project.id = id; project.name = copyName(project.name); project.updatedAt = new Date();
+      payload.projects[id] = JSON.stringify(project);
+      if (candidate.thumbnail) payload.thumbnails[id] = candidate.thumbnail;
+      if (candidate.versions.length) {
+        const versions = candidate.versions.map(item => {
+          const snapshotProject = JSON.parse(item.data);
+          snapshotProject.id = id; snapshotProject.name = copyName(snapshotProject.name);
+          return { ...item, data: JSON.stringify(snapshotProject) };
+        });
+        payload.history[id] = writeSnapshotStorage(versions);
+      }
+      saved.push({ id, name: project.name });
+    }
+    for (const archive of archives) payload.meta[freshId()] = archive.raw;
+    return { payload, saved };
+  };
+
   let active: Promise<RestoreResult> | undefined, completed: RestoreResult | undefined;
   const restore = (signal?: AbortSignal): Promise<RestoreResult> => {
     if (completed) return Promise.resolve(completed);
     if (active) return active;
     if (signal?.aborted) return Promise.reject(new DOMException('Restore cancelled.', 'AbortError'));
     if (!candidates.length && !archives.length) return Promise.reject(new Error('This backup contains no projects or recovery data.'));
-    active = withDatabase(db => transaction(db, ['projects', 'thumbnails', 'history', 'meta'], 'readwrite', async tx => {
-      await migrateLegacy(tx, true);
-      const saved: { id: string; name: string }[] = [];
-      const store = tx.objectStore('projects');
-      for (const candidate of candidates) {
-        let id: string, attempts = 0;
-        do {
-          if (++attempts > 5) throw new Error('Could not choose a restored project ID. Try restoring again.');
-          id = newId();
-        } while (await request(store.get(id)) !== undefined || Object.hasOwn(projects, id));
-        const project = JSON.parse(candidate.raw);
-        project.id = id; project.name = copyName(project.name); project.updatedAt = new Date();
-        await request(store.add(JSON.stringify(project), id));
-        if (candidate.thumbnail) await request(tx.objectStore('thumbnails').add(candidate.thumbnail, id));
-        if (candidate.versions.length) {
-          const versions = candidate.versions.map(item => {
-            const project = JSON.parse(item.data);
-            project.id = id; project.name = copyName(project.name);
-            return { ...item, data: JSON.stringify(project) };
-          });
-          await request(tx.objectStore('history').add(writeSnapshotStorage(versions), id));
-        }
-        saved.push({ id, name: project.name });
+    active = (async () => {
+      for (let attempt = 0; ; attempt++) {
+        const { payload, saved } = buildPayload();
+        const response = await fetch('/api/projects/restore', {
+          method: 'POST', body: JSON.stringify(payload), headers: { 'Content-Type': 'application/json' }, signal,
+        });
+        // A fresh-UUID collision is astronomically unlikely; regenerate and retry.
+        if (response.status === 409) { if (attempt < 5) continue; throw new Error('Could not choose restored project IDs. Try restoring again.'); }
+        if (!response.ok) throw new Error('The library could not be restored. Check your connection and try again.');
+        await response.body?.cancel();
+        return Object.freeze({ projects: Object.freeze(saved.map(p => Object.freeze(p))), recoveryArchives: archives.length });
       }
-      for (const archive of archives) {
-        const meta = tx.objectStore('meta');
-        let id = archive.id, attempts = 0;
-        while (true) {
-          const existing = await request(meta.get(`library-recovery:${id}`));
-          if (existing === archive.raw) break;
-          if (existing === undefined) { await request(meta.add(archive.raw, `library-recovery:${id}`)); break; }
-          if (++attempts > 5) throw new Error('Could not preserve recovery data. Try restoring again.');
-          id = newId();
-        }
-      }
-      return Object.freeze({ projects: Object.freeze(saved.map(p => Object.freeze(p))), recoveryArchives: archives.length });
-    }, signal), { migrate: false }).then(result => {
+    })().then(result => {
       completed = result;
       for (const project of result.projects) notifyLibraryChange(project.id);
       return result;

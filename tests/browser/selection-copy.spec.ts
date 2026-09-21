@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { readFile } from 'node:fs/promises';
 for (const locale of ['en', 'pt']) for (const kind of ['mixed','entourage']) {
   test(`${locale} duplicate and delete the complete ${kind} selection with undo and redo`, async ({page}) => {

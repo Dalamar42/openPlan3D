@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { readFile } from 'node:fs/promises';
 
 for (const width of [1440, 390]) for (const kind of ['door', 'window'] as const) test(`keyboard ${kind} Properties focuses editing and preserves Undo at ${width}px`, async ({ page }) => {

@@ -1,21 +1,15 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type APIRequestContext, seedRaw } from './fixtures';
 import { readFile } from 'node:fs/promises';
 import { packageJSON, readPackageZip } from '../../src/lib/utils/projectPackageZip';
 import { readSnapshotStorage, type StoredSnapshot } from '../../src/lib/utils/snapshotStorage';
 import { failProjectWrites, savedProjects, storedRecords } from './storage';
 
 const id = 'qa-legacy-furniture-previews';
-async function seed(page: Page) {
+async function seed(page: Page, request: APIRequestContext) {
   const raw = JSON.stringify(JSON.parse(await readFile('tests/fixtures/legacy-furniture-previews.openplan.json', 'utf8')));
   const history = JSON.stringify([{ timestamp: 1, description: 'Before preview refresh', data: raw }]);
-  await page.addInitScript(({ id, raw, history }) => {
-    if (!localStorage.getItem('qaLegacyPreviewSeeded')) {
-      localStorage.setItem('floorplan_projects', JSON.stringify({ [id]: raw }));
-      localStorage.setItem(`vh_${id}`, history);
-      localStorage.setItem('hasSeenWelcome', 'true');
-      localStorage.setItem('qaLegacyPreviewSeeded', 'true');
-    }
-  }, { id, raw, history });
+  await seedRaw(request, { projects: { [id]: raw }, history: { [id]: history } });
+  await page.addInitScript(() => localStorage.setItem('hasSeenWelcome', 'true'));
   await page.goto(`/editor?id=${id}`);
   await page.getByRole('button', { name: 'Save', exact: true }).press('l');
   await expect(page.getByRole('button', { name: '🛏️ Queen Bed', exact: true })).toBeVisible();
@@ -24,7 +18,6 @@ async function seed(page: Page) {
   await expect.poll(async () => readSnapshotStorage((await storedRecords(page, 'history'))[id]).length).toBe(2);
   const openedHistory = (await storedRecords(page, 'history'))[id];
   expect((readSnapshotStorage(openedHistory)[0] as StoredSnapshot).data).toBe(raw);
-  expect(await page.evaluate(id => localStorage.getItem(`vh_${id}`), id)).toBe(history);
   return { raw, history: openedHistory };
 }
 function observe(page: Page) {
@@ -42,10 +35,10 @@ async function download(page: Page, button: string) {
   return readFile((await (await pending).path())!);
 }
 
-for (const width of [1440, 390]) test(`saved legacy furniture refreshes without rewriting recovery data at ${width}px`, async ({ page }, testInfo) => {
+for (const width of [1440, 390]) test(`saved legacy furniture refreshes without rewriting recovery data at ${width}px`, async ({ page, request }, testInfo) => {
   test.slow();
   await page.setViewportSize({ width, height: 900 });
-  const { models, check } = observe(page), { raw, history } = await seed(page);
+  const { models, check } = observe(page), { raw, history } = await seed(page, request);
   for (const name of ['🪥 Sink', '🪜 Imported stairs', '📦 Unrecognized item']) {
     await expect(page.getByRole('button', { name, exact: true })).toBeVisible();
   }
@@ -88,8 +81,8 @@ for (const width of [1440, 390]) test(`saved legacy furniture refreshes without 
   check();
 });
 
-test('quota recovery keeps old saved bytes and exports a refreshed draft', async ({ page }) => {
-  const { check } = observe(page), { raw, history } = await seed(page);
+test('quota recovery keeps old saved bytes and exports a refreshed draft', async ({ page, request }) => {
+  const { check } = observe(page), { raw, history } = await seed(page, request);
   await page.getByRole('button', { name: '🛏️ Queen Bed', exact: true }).click();
   await failProjectWrites(page);
   const notes = page.getByRole('textbox', { name: 'Item notes', exact: true });

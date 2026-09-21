@@ -6,7 +6,7 @@
   import { onMount, onDestroy, tick } from 'svelte';
   import { goto } from '$app/navigation';
   import { base } from '$app/paths';
-  import { localStore, storageErrorMessage, downloadLibraryBackup } from '$lib/services/datastore';
+  import { projectStore, storageErrorMessage, downloadLibraryBackup } from '$lib/services/datastore';
   import { openProject } from '$lib/services/projectOpening';
   import { createDefaultProject } from '$lib/stores/project';
   import WelcomeScreen from '$lib/components/WelcomeScreen.svelte';
@@ -47,9 +47,9 @@
   async function refreshProjects() {
     loading = true;
     try {
-      projects = await localStore.list();
+      projects = await projectStore.list();
       projects.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-      thumbnails = await localStore.getThumbnails();
+      thumbnails = await projectStore.getThumbnails();
     } finally { loading = false; }
   }
 
@@ -87,7 +87,7 @@
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     duplicating = true;
     await withLibraryError(async () => {
-      const dup = await localStore.duplicate(id);
+      const dup = await projectStore.duplicate(id);
       if (!dup) throw new Error($t('library.gone'));
     });
     // Refresh errors must not turn a completed copy into a retryable mutation.
@@ -108,13 +108,13 @@
     if (!action || actionBusy || (action.type === 'rename' && !name)) return;
     actionBusy = true; actionError = null;
     try {
-      if (action.type === 'delete') await localStore.delete(action.id);
+      if (action.type === 'delete') await projectStore.delete(action.id);
       else {
-        const project = await localStore.load(action.id);
+        const project = await projectStore.load(action.id);
         if (!project) throw new Error($t('library.goneAction'));
         project.name = name;
         project.updatedAt = new Date();
-        await localStore.save(project);
+        await projectStore.save(project);
       }
     } catch (error) {
       actionError = storageErrorMessage(error);

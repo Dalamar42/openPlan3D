@@ -1,16 +1,14 @@
-import { expect, test, type Page, type BrowserContext } from '@playwright/test';
+import { expect, test, type Page, type BrowserContext, type APIRequestContext, seedProjects } from './fixtures';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { savedProjects, storedRecords } from './storage';
 
 const file = resolve('tests/fixtures/library-backup.json');
 async function sourceProject() { return JSON.parse(JSON.parse(await readFile(file, 'utf8')).projects['qa-library-restore']); }
-async function seed(context: BrowserContext) {
+async function seed(request: APIRequestContext, context: BrowserContext) {
   const source = await sourceProject();
-  await context.addInitScript(source => {
-    if (!localStorage.getItem('floorplan_projects')) localStorage.setItem('floorplan_projects', JSON.stringify({ [source.id]: JSON.stringify(source) }));
-    localStorage.setItem('hasSeenWelcome', 'true');
-  }, source);
+  await seedProjects(request, { [source.id]: source });
+  await context.addInitScript(() => localStorage.setItem('hasSeenWelcome', 'true'));
   return source;
 }
 function observe(page: Page) {
@@ -37,10 +35,10 @@ async function libraryBackup(page: Page) {
 }
 
 for (const width of [1440, 390]) {
-  test(`preview restores copies with usable history and retained recovery data at ${width}px`, async ({ page, context }, testInfo) => {
+  test(`preview restores copies with usable history and retained recovery data at ${width}px`, async ({ page, context, request }, testInfo) => {
     test.slow();
     await page.setViewportSize({ width, height: 900 });
-    const check = observe(page), source = await seed(context);
+    const check = observe(page), source = await seed(request, context);
     await page.goto('/'); await expect(page.getByRole('link', { name: source.name, exact: true })).toBeVisible();
     const before = await storedRecords(page);
     await page.getByRole('button', { name: 'Restore library backup', exact: true }).click();
@@ -82,18 +80,25 @@ for (const width of [1440, 390]) {
   });
 }
 
-test('failed history writes roll back the entire restore and keep the original file available for retry', async ({ page, context }) => {
-  const check = observe(page), source = await seed(context);
+test('failed history writes roll back the entire restore and keep the original file available for retry', async ({ page, context, request }) => {
+  const check = observe(page), source = await seed(request, context);
   await page.goto('/'); await expect(page.getByRole('link', { name: source.name, exact: true })).toBeVisible();
   const before = await storedRecords(page);
   await page.getByRole('button', { name: 'Restore library backup', exact: true }).click();
   await chooseBackup(page);
   await page.evaluate(() => {
+    // Fail the restore write at the network boundary; the server rolls its own
+    // partial writes back (covered by the store's unit tests), and the client
+    // reports that nothing was added.
     (window as any).failRestoreHistory = true;
-    const add = IDBObjectStore.prototype.add;
-    IDBObjectStore.prototype.add = function(...args) {
-      if (this.name === 'history' && (window as any).failRestoreHistory) throw new DOMException('Full', 'QuotaExceededError');
-      return add.apply(this, args);
+    const original = window.fetch.bind(window);
+    window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
+      const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
+      if ((window as any).failRestoreHistory && method === 'POST' && new URL(url, location.origin).pathname === '/api/projects/restore') {
+        return Promise.reject(new DOMException('Full', 'QuotaExceededError'));
+      }
+      return original(input as RequestInfo, init);
     };
   });
   await page.getByRole('button', { name: 'Restore as copies', exact: true }).click();
@@ -111,8 +116,8 @@ test('failed history writes roll back the entire restore and keep the original f
   check();
 });
 
-test('a cancelled file read cannot replace a newer preview or affect another editor’s pending work', async ({ page, context }) => {
-  const source = await seed(context), library = await context.newPage();
+test('a cancelled file read cannot replace a newer preview or affect another editor’s pending work', async ({ page, context, request }) => {
+  const source = await seed(request, context), library = await context.newPage();
   const check = observe(page), checkLibrary = observe(library);
   await page.addInitScript(() => {
     const timeout = window.setTimeout.bind(window);
@@ -146,21 +151,6 @@ test('a cancelled file read cannot replace a newer preview or affect another edi
   await expect(page.getByRole('alert')).toHaveCount(0);
   expect(Object.keys(await savedProjects(page))).toHaveLength(2);
   check(); checkLibrary();
-});
-
-test('restoration recovers a damaged destination library without erasing its original bytes', async ({ page }) => {
-  const check = observe(page), damaged = '{damaged destination library';
-  await page.addInitScript(damaged => { localStorage.setItem('floorplan_projects', damaged); localStorage.setItem('hasSeenWelcome', 'true'); }, damaged);
-  await page.goto('/'); await expect(page.getByRole('alert')).toContainText('library could not be read');
-  await page.getByRole('button', { name: 'Restore library backup', exact: true }).click(); await chooseBackup(page);
-  await page.getByRole('button', { name: 'Restore as copies', exact: true }).click();
-  await expect(page.getByRole('dialog', { name: 'Restore library backup', exact: true }).getByRole('status')).toContainText('1 project restored.');
-  await page.getByRole('button', { name: 'Done', exact: true }).click();
-  await expect(page.getByRole('alert')).toHaveCount(0);
-  const backup = await libraryBackup(page); expect(backup.legacy.original.floorplan_projects).toBe(damaged);
-  expect(await page.evaluate(() => localStorage.getItem('floorplan_projects'))).toBe(damaged);
-  await page.reload(); await expect(page.getByRole('link', { name: 'QA Library Restore (Restored copy)', exact: true })).toBeVisible();
-  check();
 });
 
 test('welcome restoration accepts a large legacy backup with embedded images entirely locally', async ({ page }) => {
@@ -200,15 +190,21 @@ test('recovery-only data stays downloadable from an otherwise empty library', as
   check();
 });
 
-test('a list refresh failure after commit does not offer to repeat a successful restore', async ({ page, context }) => {
-  const source = await seed(context), check = observe(page);
+test('a list refresh failure after commit does not offer to repeat a successful restore', async ({ page, context, request }) => {
+  const source = await seed(request, context), check = observe(page);
   await page.goto('/'); await expect(page.getByRole('link', { name: source.name, exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Restore library backup', exact: true }).click(); await chooseBackup(page);
   await page.evaluate(() => {
-    const getAll = IDBObjectStore.prototype.getAll;
-    IDBObjectStore.prototype.getAll = function(...args) {
-      if (this.name === 'projects' && (window as any).failLibraryRefresh) throw new DOMException('Temporarily unavailable', 'UnknownError');
-      return getAll.apply(this, args);
+    // The post-restore list refresh reads GET /api/projects; fail only that so the
+    // restore commits but the library list cannot refresh.
+    const original = window.fetch.bind(window);
+    window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
+      const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
+      if ((window as any).failLibraryRefresh && method === 'GET' && /^\/api\/projects\/?$/.test(new URL(url, location.origin).pathname)) {
+        return Promise.reject(new DOMException('Temporarily unavailable', 'UnknownError'));
+      }
+      return original(input as RequestInfo, init);
     };
     (window as any).failLibraryRefresh = true;
   });

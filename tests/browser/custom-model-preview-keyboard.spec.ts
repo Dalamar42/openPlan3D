@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 // Includes editor startup plus six keyboard interactions and rendered-image checks.
 // A loaded-host trace spent 140 seconds opening Objects before preview was reached.

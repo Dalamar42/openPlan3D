@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { observeGPU, gpu } from './gpu';

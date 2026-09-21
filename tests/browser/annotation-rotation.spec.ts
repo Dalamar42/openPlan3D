@@ -1,4 +1,4 @@
-import {expect,test} from '@playwright/test';
+import {expect,test} from './fixtures';
 import {readFile} from 'node:fs/promises';
 for(const kind of ['mixed','note','measurement','dimension']) {
   const width=kind==='mixed'?1440:390;

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { get } from 'svelte/store';
 import type { Project } from '$lib/models/types';
-import { localStore, ProjectConflictError } from '$lib/services/datastore';
+import { projectStore, ProjectConflictError } from '$lib/services/datastore';
 import { createDefaultProject, currentProject, updateProjectName } from '$lib/stores/project';
 import { autoSave, initAutoSave, lastSavedAt, manualSave, markClean, saveError, saveState, saveConflict, saveCurrentAsCopy, savingCopy } from '$lib/stores/saveStatus';
 
@@ -13,7 +13,7 @@ beforeEach(() => {
   currentProject.set(createDefaultProject());
   markClean();
   stop = initAutoSave();
-  vi.spyOn(localStore, 'save').mockResolvedValue();
+  vi.spyOn(projectStore, 'save').mockResolvedValue();
 });
 
 afterEach(() => { stop(); vi.useRealTimers(); });
@@ -24,15 +24,15 @@ it('debounces edits into one local write and only then reports Saved', async () 
   updateProjectName('B');
   expect(get(saveState)).toBe('unsaved');
   await vi.advanceTimersByTimeAsync(600);
-  expect(localStore.save).not.toHaveBeenCalled();
+  expect(projectStore.save).not.toHaveBeenCalled();
   await vi.advanceTimersByTimeAsync(400);
-  expect(localStore.save).toHaveBeenCalledTimes(1);
+  expect(projectStore.save).toHaveBeenCalledTimes(1);
   expect(get(saveState)).toBe('saved');
   expect(get(lastSavedAt)).toBeInstanceOf(Date);
 });
 
 it('shows a quota failure without a false success and supports retry', async () => {
-  vi.mocked(localStore.save).mockRejectedValueOnce(new DOMException('Full', 'QuotaExceededError'));
+  vi.mocked(projectStore.save).mockRejectedValueOnce(new DOMException('Full', 'QuotaExceededError'));
   updateProjectName('Keep this edit');
   expect(await manualSave()).toBe(false);
   expect(get(saveState)).toBe('unsaved');
@@ -43,11 +43,11 @@ it('shows a quota failure without a false success and supports retry', async () 
   expect(get(saveState)).toBe('saved');
   expect(get(saveError)).toBeNull();
   await vi.advanceTimersByTimeAsync(2000);
-  expect(localStore.save).toHaveBeenCalledTimes(2);
+  expect(projectStore.save).toHaveBeenCalledTimes(2);
 });
 
 it('reports autosave failure without an unhandled rejection', async () => {
-  vi.mocked(localStore.save).mockRejectedValue(new DOMException('Denied', 'SecurityError'));
+  vi.mocked(projectStore.save).mockRejectedValue(new DOMException('Denied', 'SecurityError'));
   updateProjectName('Keep this too');
   await vi.advanceTimersByTimeAsync(1000);
   expect(get(saveState)).toBe('unsaved');
@@ -56,7 +56,7 @@ it('reports autosave failure without an unhandled rejection', async () => {
 
 it('does not mark edits made during a pending write as saved', async () => {
   let finish!: () => void;
-  vi.mocked(localStore.save).mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+  vi.mocked(projectStore.save).mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
   updateProjectName('First edit');
   const pending = autoSave();
   updateProjectName('Later edit');
@@ -69,7 +69,7 @@ it('does not mark edits made during a pending write as saved', async () => {
 
 it('does not let a previous project write overwrite the next project save status', async () => {
   let fail!: (reason: Error) => void;
-  vi.mocked(localStore.save).mockImplementationOnce(() => new Promise<void>((_, reject) => { fail = reject; }));
+  vi.mocked(projectStore.save).mockImplementationOnce(() => new Promise<void>((_, reject) => { fail = reject; }));
   const pending = autoSave();
   currentProject.set(createDefaultProject('Next'));
   markClean();
@@ -83,12 +83,12 @@ it('cleans up the subscription and timer when leaving the editor', async () => {
   updateProjectName('Pending');
   stop();
   await vi.advanceTimersByTimeAsync(2000);
-  expect(localStore.save).not.toHaveBeenCalled();
+  expect(projectStore.save).not.toHaveBeenCalled();
   markClean();
   stop = initAutoSave();
   updateProjectName('Reopened');
   await vi.advanceTimersByTimeAsync(1000);
-  expect(localStore.save).toHaveBeenCalledTimes(1);
+  expect(projectStore.save).toHaveBeenCalledTimes(1);
 });
 
 it('does not skip the first real edit after loading a saved project', async () => {
@@ -96,7 +96,7 @@ it('does not skip the first real edit after loading a saved project', async () =
   updateProjectName('First edit after load');
   expect(get(saveState)).toBe('unsaved');
   await vi.advanceTimersByTimeAsync(1000);
-  expect(localStore.save).toHaveBeenCalledTimes(1);
+  expect(projectStore.save).toHaveBeenCalledTimes(1);
 });
 
 it('does not show another project\'s save time if creation fails outside the editor', async () => {
@@ -104,7 +104,7 @@ it('does not show another project\'s save time if creation fails outside the edi
   expect(get(lastSavedAt)).toBeInstanceOf(Date);
   stop();
   currentProject.set(createDefaultProject('New unsaved project'));
-  vi.mocked(localStore.save).mockRejectedValueOnce(new DOMException('Full', 'QuotaExceededError'));
+  vi.mocked(projectStore.save).mockRejectedValueOnce(new DOMException('Full', 'QuotaExceededError'));
   expect(await autoSave()).toBe(false);
   expect(get(lastSavedAt)).toBeNull();
   expect(get(saveError)).toContain('Browser storage is full');
@@ -119,7 +119,7 @@ it('saves immediately but captures a thumbnail only after the canvas redraws', a
     querySelector: () => ({ width: 600, height: 400 }),
     createElement: () => ({ getContext: () => ({ drawImage }), toDataURL: () => renderedPlan }),
   });
-  const preview = vi.spyOn(localStore, 'saveThumbnail').mockResolvedValue();
+  const preview = vi.spyOn(projectStore, 'saveThumbnail').mockResolvedValue();
   expect(await autoSave()).toBe(true);
   expect(get(saveState)).toBe('saved');
   expect(preview).not.toHaveBeenCalled();
@@ -146,14 +146,14 @@ it('discards delayed thumbnail work after a later edit or project switch', async
 });
 
 it('keeps conflicting edits unsaved without repeatedly autosaving over another tab', async () => {
-  vi.mocked(localStore.save).mockRejectedValue(new ProjectConflictError());
+  vi.mocked(projectStore.save).mockRejectedValue(new ProjectConflictError());
   updateProjectName('My version');
   expect(await manualSave()).toBe(false);
   expect(get(saveConflict)).toBe(true);
   expect(get(saveError)).toContain('another tab');
   updateProjectName('More local edits');
   await vi.advanceTimersByTimeAsync(2000);
-  expect(localStore.save).toHaveBeenCalledOnce();
+  expect(projectStore.save).toHaveBeenCalledOnce();
   expect(get(saveState)).toBe('unsaved');
 });
 
@@ -162,7 +162,7 @@ it('notifies about external project changes without replacing local work and rem
   const events = new EventTarget();
   vi.stubGlobal('window', events);
   const removed = vi.spyOn(events, 'removeEventListener');
-  const check = vi.spyOn(localStore, 'assertCurrent').mockImplementation(() => { throw new ProjectConflictError(); });
+  const check = vi.spyOn(projectStore, 'assertCurrent').mockImplementation(() => { throw new ProjectConflictError(); });
   stop = initAutoSave();
   const before = get(currentProject);
   events.dispatchEvent(Object.assign(new Event('storage'), { key: 'floorplan_projects' }));
@@ -176,7 +176,7 @@ it('notifies about external project changes without replacing local work and rem
 it('ignores unrelated storage events and other project writes', () => {
   stop();
   const events = new EventTarget(); vi.stubGlobal('window', events);
-  const check = vi.spyOn(localStore, 'assertCurrent').mockResolvedValue();
+  const check = vi.spyOn(projectStore, 'assertCurrent').mockResolvedValue();
   stop = initAutoSave();
   events.dispatchEvent(Object.assign(new Event('storage'), { key: 'settings' }));
   expect(check).not.toHaveBeenCalled();
@@ -187,19 +187,19 @@ it('ignores unrelated storage events and other project writes', () => {
 it('switches to a recovery copy only after that copy is saved', async () => {
   updateProjectName('Recover me'); saveConflict.set(true);
   const copy = { ...get(currentProject)!, id: 'recovered', name: 'Recover me (Recovered copy)' };
-  vi.spyOn(localStore, 'saveCopy').mockResolvedValue(copy);
+  vi.spyOn(projectStore, 'saveCopy').mockResolvedValue(copy);
   expect(await saveCurrentAsCopy()).toBe(true);
   expect(get(currentProject)).toBe(copy);
   expect(get(saveState)).toBe('saved'); expect(get(saveConflict)).toBe(false);
   expect(get(lastSavedAt)).toBeInstanceOf(Date); expect(get(savingCopy)).toBe(false);
   await vi.advanceTimersByTimeAsync(2000);
-  expect(localStore.save).not.toHaveBeenCalled();
+  expect(projectStore.save).not.toHaveBeenCalled();
 });
 
 it('retains conflicting work and its retry option if saving a copy fails', async () => {
   updateProjectName('Keep me in memory'); saveConflict.set(true);
   const before = get(currentProject);
-  vi.spyOn(localStore, 'saveCopy').mockRejectedValue(new DOMException('Full', 'QuotaExceededError'));
+  vi.spyOn(projectStore, 'saveCopy').mockRejectedValue(new DOMException('Full', 'QuotaExceededError'));
   expect(await saveCurrentAsCopy()).toBe(false);
   expect(get(currentProject)).toBe(before);
   expect(get(saveState)).toBe('unsaved'); expect(get(saveConflict)).toBe(true);
@@ -211,7 +211,7 @@ it('does not discard edits made while a recovery copy is being saved', async () 
   updateProjectName('Copy this revision'); saveConflict.set(true);
   let finish!: (value: Project) => void;
   const copy = { ...get(currentProject)!, id: 'recovered' };
-  vi.spyOn(localStore, 'saveCopy').mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  vi.spyOn(projectStore, 'saveCopy').mockImplementation(() => new Promise(resolve => { finish = resolve; }));
   const pending = saveCurrentAsCopy();
   expect(await saveCurrentAsCopy()).toBe(false);
   updateProjectName('Later edits');

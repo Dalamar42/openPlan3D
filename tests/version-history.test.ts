@@ -1,4 +1,4 @@
-import { mockStorage, rawRecords, putRaw, failWrites } from './fixtures/indexeddb';
+import { mockStorage, rawRecords, putRaw, failWrites } from './fixtures/projectStore';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { currentProject, loadProject, updateWall, undo, redo, undoHistoryStore } from '$lib/stores/project';
@@ -51,13 +51,13 @@ describe('version restoration safety', () => {
 });
 
 
-it('retains all previous versions and the failure message after a quota error, then retries', async () => {
+it('retains all previous versions and the failure message after a write error, then retries', async () => {
   const project = get(currentProject)!;
   for (let i = 0; i < 10; i++) await saveSnapshot(project, `Saved ${i}`);
   const before = await rawRecords('history'), restore = failWrites('history');
   expect(await saveSnapshot(project, 'Cannot fit')).toBe(false);
   expect(await rawRecords('history')).toEqual(before);
-  await refreshSnapshots(); expect(get(snapshotError)).toContain('Browser storage is full');
+  await refreshSnapshots(); expect(get(snapshotError)).toContain('could not be saved');
   expect(get(snapshotsStore)).toHaveLength(10);
   restore(); expect(await saveSnapshot(project, 'Retry')).toBe(true);
   expect(get(snapshotError)).toBeNull(); expect((await getSnapshots(project.id)).at(-1)!.description).toBe('Retry');
