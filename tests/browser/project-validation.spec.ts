@@ -1,5 +1,5 @@
 import { storedRecords } from './storage';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, seedRaw } from './fixtures';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
@@ -98,36 +98,29 @@ test('welcome import recovers from a damaged file and accepts missing legacy fie
   check();
 });
 
-test('damaged saved geometry offers an exact raw backup without hiding healthy projects', async ({ page }) => {
+test('damaged saved geometry offers an exact raw backup without hiding healthy projects', async ({ page, request }) => {
   const check = observe(page);
   const damaged = await readFile(damagedFixture, 'utf8');
   const healthy = JSON.parse(await readFile(fixture, 'utf8')); healthy.id = 'qa-healthy-neighbor';
-  const raw = JSON.stringify({ 'qa-project-import-safety': damaged, [healthy.id]: JSON.stringify(healthy) });
-  await page.addInitScript(raw => {
-    if (localStorage.getItem('floorplan_projects') === null) localStorage.setItem('floorplan_projects', raw);
-  }, raw);
+  const projects = { 'qa-project-import-safety': damaged, [healthy.id]: JSON.stringify(healthy) };
+  await seedRaw(request, { projects });
   await page.goto('/editor?id=qa-project-import-safety');
   await expect(page.getByRole('alert')).toContainText('walls[0].start');
   const pending = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download library backup', exact: true }).click();
   const backup = JSON.parse(await readFile((await (await pending).path())!, 'utf8'));
-  expect(backup.projects).toEqual(JSON.parse(raw));
-  expect(backup.legacy.original.floorplan_projects).toBe(raw);
-  expect(await page.evaluate(() => localStorage.getItem('floorplan_projects'))).toBe(raw);
+  // The backup preserves each stored project's exact bytes, damaged and healthy.
+  expect(backup.projects).toEqual(projects);
   await page.goto('/editor?id=qa-healthy-neighbor');
   await expect(page.getByRole('application')).toContainText('1 room');
   expect((await exportProject(page)).id).toBe(healthy.id);
-  expect(await page.evaluate(() => localStorage.getItem('floorplan_projects'))).toBe(raw);
   check();
 });
 
-test('a damaged version stays available for backup and cannot replace the current plan', async ({ page }, testInfo) => {
+test('a damaged version stays available for backup and cannot replace the current plan', async ({ page, request }, testInfo) => {
   const check = observe(page), source = JSON.parse(await readFile(fixture, 'utf8'));
   const history = JSON.stringify([{ timestamp: Date.now(), description: 'Damaged snapshot', data: await readFile(damagedFixture, 'utf8') }]);
-  await page.addInitScript(({ source, history }) => {
-    localStorage.setItem('floorplan_projects', JSON.stringify({ [source.id]: JSON.stringify(source) }));
-    localStorage.setItem(`vh_${source.id}`, history);
-  }, { source, history });
+  await seedRaw(request, { projects: { [source.id]: JSON.stringify(source) }, history: { [source.id]: history } });
   await page.goto(`/editor?id=${source.id}`);
   await expect(page.getByRole('application')).toContainText('1 room');
   const before = await exportProject(page);
@@ -162,12 +155,9 @@ test('welcome import accepts the advertised iPhone RoomPlan JSON locally', async
   check();
 });
 
-test('unreadable history remains downloadable and is not replaced by the session snapshot', async ({ page }) => {
+test('unreadable history remains downloadable and is not replaced by the session snapshot', async ({ page, request }) => {
   const check = observe(page), source = JSON.parse(await readFile(fixture, 'utf8'));
-  await page.addInitScript(source => {
-    localStorage.setItem('floorplan_projects', JSON.stringify({ [source.id]: JSON.stringify(source) }));
-    localStorage.setItem(`vh_${source.id}`, '{damaged history bytes');
-  }, source);
+  await seedRaw(request, { projects: { [source.id]: JSON.stringify(source) }, history: { [source.id]: '{damaged history bytes' } });
   await page.goto(`/editor?id=${source.id}`);
   await expect(page.getByRole('application')).toContainText('1 room');
   await page.getByRole('button', { name: 'Version History', exact: true }).click();
@@ -176,7 +166,6 @@ test('unreadable history remains downloadable and is not replaced by the session
   const pending = page.waitForEvent('download');
   await dialog.getByRole('button', { name: 'Download version backup', exact: true }).click();
   expect(await readFile((await (await pending).path())!, 'utf8')).toBe('{damaged history bytes');
-  expect(await page.evaluate(id => localStorage.getItem(`vh_${id}`), source.id)).toBe('{damaged history bytes');
   check();
 });
 

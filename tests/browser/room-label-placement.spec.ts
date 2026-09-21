@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import { benchmarkProject } from '../fixtures/render-benchmark';
 
 for (const release of ['mouse up', 'Undo while dragging']) {

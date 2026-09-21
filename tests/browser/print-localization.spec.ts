@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { readFile } from 'node:fs/promises';
 
 test('Portuguese print controls preserve paper, scale validation and PDF export', async ({ page }) => {

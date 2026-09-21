@@ -1,21 +1,16 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type APIRequestContext, seedProjects } from './fixtures';
 import { readFile } from 'node:fs/promises';
 import { failProjectWrites, savedProjects, storedRecords } from './storage';
 
-async function seed(page: Page) {
+async function seed(page: Page, request: APIRequestContext) {
   const project = JSON.parse(await readFile('tests/fixtures/save-conflicts.openplan.json', 'utf8'));
   project.id = 'qa-library-actions'; project.name = 'QA Library Actions';
   // Use the current door shape so geometry assertions isolate library actions
   // from the existing legacy import default for flipSide.
   for (const floor of project.floors) for (const door of floor.doors) door.flipSide ??= false;
   const second = { ...project, id: 'qa-library-second', name: 'Second project' };
-  await page.addInitScript(projects => {
-    if (!localStorage.getItem('qaLibraryActionsSeeded')) {
-      localStorage.setItem('floorplan_projects', JSON.stringify(Object.fromEntries(projects.map(p => [p.id, JSON.stringify(p)]))));
-      localStorage.setItem('qaLibraryActionsSeeded', 'true');
-    }
-    localStorage.setItem('hasSeenWelcome', 'true');
-  }, [project, second]);
+  await seedProjects(request, { [project.id]: project, [second.id]: second });
+  await page.addInitScript(() => localStorage.setItem('hasSeenWelcome', 'true'));
   await page.goto('/');
   await expect(page.getByRole('link', { name: project.name, exact: true })).toBeVisible();
   return project;
@@ -33,21 +28,32 @@ async function action(page: Page, name: string, projectName?: string) {
   await trigger(page, projectName).press('Enter');
   await page.getByRole('menuitem', { name, exact: true }).click();
 }
+// The client store no longer uses a Web Lock; hold the next project mutation at
+// the network boundary instead, so the busy-state assertions still have a
+// pending write to observe. Reads (GET) pass through so the library still loads.
 async function holdWrites(page: Page) {
-  await page.evaluate(() => new Promise<void>(resolve => {
-    void navigator.locks.request('openplan3d-project-library', () => new Promise<void>(release => {
-      (window as any).releaseLibraryAction = release; resolve();
-    }));
-  }));
+  await page.evaluate(() => {
+    const original = window.fetch.bind(window);
+    (window as any).__holdWrites = true;
+    window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
+      const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
+      const path = new URL(url, location.origin).pathname;
+      if ((window as any).__holdWrites && method !== 'GET' && method !== 'HEAD' && path.startsWith('/api/projects/')) {
+        return new Promise<Response>(resolve => { (window as any).releaseLibraryAction = () => resolve(original(input as RequestInfo, init)); });
+      }
+      return original(input as RequestInfo, init);
+    };
+  });
 }
 async function releaseWrites(page: Page) {
-  await page.evaluate(() => { (window as any).releaseLibraryAction(); });
+  await page.evaluate(() => { (window as any).__holdWrites = false; (window as any).releaseLibraryAction?.(); });
 }
 
 for (const width of [1440, 390]) {
-  test(`library menus navigate and cancellation preserves projects at ${width}px`, async ({ page }, testInfo) => {
+  test(`library menus navigate and cancellation preserves projects at ${width}px`, async ({ page, request }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
-    const check = observe(page); await seed(page);
+    const check = observe(page); await seed(page, request);
     const before = await storedRecords(page);
     const button = trigger(page), menu = page.getByRole('menu');
     await button.press('ArrowDown');
@@ -96,9 +102,9 @@ for (const width of [1440, 390]) {
     check();
   });
 
-  test(`library rename retains failed drafts and submits once at ${width}px`, async ({ page }, testInfo) => {
+  test(`library rename retains failed drafts and submits once at ${width}px`, async ({ page, request }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
-    const check = observe(page), project = await seed(page), before = await storedRecords(page);
+    const check = observe(page), project = await seed(page, request), before = await storedRecords(page);
     await action(page, 'Rename');
     const dialog = page.getByRole('dialog', { name: 'Rename project', exact: true });
     const field = dialog.getByRole('textbox', { name: 'Project name', exact: true });
@@ -133,8 +139,8 @@ for (const width of [1440, 390]) {
   });
 }
 
-test('library copies once while busy and deletes only the confirmed project', async ({ page }) => {
-  const check = observe(page), project = await seed(page), before = await storedRecords(page);
+test('library copies once while busy and deletes only the confirmed project', async ({ page, request }) => {
+  const check = observe(page), project = await seed(page, request), before = await storedRecords(page);
   await holdWrites(page); await action(page, 'Duplicate');
   await expect(page.getByRole('status')).toHaveText('Duplicating project…');
   await expect(trigger(page)).toBeDisabled(); await expect(trigger(page, 'Second project')).toBeDisabled();
@@ -158,15 +164,19 @@ test('library copies once while busy and deletes only the confirmed project', as
   check();
 });
 
-test('failed library deletion keeps its confirmation available for retry', async ({ page }) => {
-  const check = observe(page); await seed(page); const before = await storedRecords(page);
+test('failed library deletion keeps its confirmation available for retry', async ({ page, request }) => {
+  const check = observe(page); await seed(page, request); const before = await storedRecords(page);
   await action(page, 'Delete');
   await page.evaluate(() => {
     (window as any).failLibraryDelete = true;
-    const remove = IDBObjectStore.prototype.delete;
-    IDBObjectStore.prototype.delete = function(...args) {
-      if (this.name === 'projects' && (window as any).failLibraryDelete) throw new DOMException('Unavailable', 'SecurityError');
-      return remove.apply(this, args);
+    const original = window.fetch.bind(window);
+    window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
+      const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
+      if ((window as any).failLibraryDelete && method === 'DELETE' && /\/api\/projects\/[^/]+$/.test(new URL(url, location.origin).pathname)) {
+        return Promise.reject(new DOMException('Unavailable', 'SecurityError'));
+      }
+      return original(input as RequestInfo, init);
     };
   });
   const dialog = page.getByRole('dialog', { name: 'Delete project', exact: true });

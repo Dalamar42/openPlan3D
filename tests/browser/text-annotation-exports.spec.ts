@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import { readFile } from 'node:fs/promises';
 import { benchmarkProject } from '../fixtures/render-benchmark';
 test('rotated multiline notes are visible and framed in plan exports',async({page},testInfo)=>{

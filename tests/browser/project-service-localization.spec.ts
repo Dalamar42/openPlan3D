@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, seedProjects } from './fixtures';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { failProjectWrites, savedProjects, storedRecords } from './storage';
@@ -12,18 +12,18 @@ async function importJSON(page: Page) {
 }
 
 for (const width of [1440, 390]) {
-  test(`Portuguese opening errors preserve pending work through language changes and recovery at ${width}px`, async ({ page }) => {
+  test(`Portuguese opening errors preserve pending work through language changes and recovery at ${width}px`, async ({ page, request }) => {
     await page.setViewportSize({ width, height: 900 });
     const source = JSON.parse(await readFile(fixture, 'utf8'));
-    await page.addInitScript(source => {
+    await seedProjects(request, { [source.id]: source });
+    await page.addInitScript(() => {
       localStorage.setItem('o3d_locale', 'pt');
       localStorage.setItem('hasSeenWelcome', 'true');
-      localStorage.setItem('floorplan_projects', JSON.stringify({ [source.id]: JSON.stringify(source) }));
       // Keep the edit pending while using menus, as in project-opening.spec.ts.
       const timeout = window.setTimeout.bind(window);
       window.setTimeout = ((handler: TimerHandler, delay?: number, ...args: any[]) =>
         timeout(handler, delay === 1000 ? 60_000 : delay, ...args)) as typeof window.setTimeout;
-    }, source);
+    });
     await page.goto(`/editor?id=${source.id}`);
     await expect(page.getByRole('application')).toContainText('1 ambiente');
     await page.getByRole('button', { name: 'Exportar', exact: true }).click();

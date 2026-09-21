@@ -1,13 +1,11 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, seedProjects } from './fixtures';
 import { readFile } from 'node:fs/promises';
 
-test('Portuguese vector downloads use localized furniture captions', async ({ page }) => {
+test('Portuguese vector downloads use localized furniture captions', async ({ page, request }) => {
   test.slow();
   const project = JSON.parse(await readFile('tests/fixtures/furniture-fidelity.openplan.json', 'utf8'));
-  await page.addInitScript(project => {
-    localStorage.setItem('o3d_locale', 'pt');
-    localStorage.setItem('floorplan_projects', JSON.stringify({ [project.id]: JSON.stringify(project) }));
-  }, project);
+  await seedProjects(request, { [project.id]: project });
+  await page.addInitScript(() => localStorage.setItem('o3d_locale', 'pt'));
   await page.goto(`/editor?id=${project.id}`);
   async function download(name: string) {
     await page.getByRole('button', { name: 'Exportar', exact: true }).click();

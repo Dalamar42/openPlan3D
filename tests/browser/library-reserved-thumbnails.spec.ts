@@ -1,8 +1,8 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, seedRaw } from './fixtures';
 import { readFile } from 'node:fs/promises';
 
 for (const mode of ['missing', 'saved', 'read failure'] as const) {
-  test(`reserved project IDs use only saved thumbnails: ${mode}`, async ({ page }) => {
+  test(`reserved project IDs use only saved thumbnails: ${mode}`, async ({ page, request }) => {
     const source = JSON.parse(await readFile('tests/fixtures/native-import.openplan.json', 'utf8'));
     const ids = ['__proto__', 'constructor', 'toString', 'ordinary-project'];
     const preview = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8" fill="red"/></svg>');
@@ -12,18 +12,23 @@ for (const mode of ['missing', 'saved', 'read failure'] as const) {
       if (request.resourceType() === 'image' && /^https?:/.test(request.url())
         && request.url() !== 'http://127.0.0.1:4188/favicon.svg') imageRequests.push(request.url());
     });
-    await page.addInitScript(({ source, ids, preview, mode }) => {
+    await seedRaw(request, {
+      projects: Object.fromEntries(ids.map(id => [id, JSON.stringify({ ...source, id, name: `Preview ${id}` })])),
+      thumbnails: mode === 'missing' ? {} : Object.fromEntries(ids.map(id => [id, preview])),
+    });
+    await page.addInitScript((mode) => {
       localStorage.setItem('hasSeenWelcome', 'true');
-      localStorage.setItem('floorplan_projects', JSON.stringify(Object.fromEntries(ids.map(id => [id, JSON.stringify({ ...source, id, name: `Preview ${id}` })]))));
-      if (mode !== 'missing') for (const id of ids) localStorage.setItem(`floorplan_thumb_${id}`, preview);
       if (mode === 'read failure') {
-        const original = IDBObjectStore.prototype.getAll;
-        IDBObjectStore.prototype.getAll = function(...args) {
-          if (this.name === 'thumbnails') throw new DOMException('Preview read failed', 'UnknownError');
-          return original.apply(this, args);
+        // The library reads previews from /api/projects/thumbnails; a failed read
+        // must leave cards without an image, never break the page.
+        const original = window.fetch.bind(window);
+        window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+          if (new URL(url, location.origin).pathname === '/api/projects/thumbnails') return Promise.reject(new Error('Preview read failed'));
+          return original(input as RequestInfo, init);
         };
       }
-    }, { source, ids, preview, mode });
+    }, mode);
     await page.goto('/');
     for (const id of ids) {
       const card = page.getByRole('link', { name: `Open Preview ${id}`, exact: true });

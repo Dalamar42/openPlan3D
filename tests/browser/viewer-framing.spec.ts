@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import { resolve } from 'node:path';
 
 // Four magenta columns mark the outer corners of a wide plan. Inspect rendered

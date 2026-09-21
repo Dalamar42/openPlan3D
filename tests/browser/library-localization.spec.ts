@@ -1,17 +1,17 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, seedProjects } from './fixtures';
 import { readFile } from 'node:fs/promises';
 import { savedProjects } from './storage';
 
-test('Portuguese library menus rename without changing geometry and cancel deletion', async ({ page }) => {
+test('Portuguese library menus rename without changing geometry and cancel deletion', async ({ page, request }) => {
   const project = JSON.parse(await readFile('tests/fixtures/save-conflicts.openplan.json', 'utf8'));
   project.name = 'Minha planta';
   // Avoid measuring the unrelated legacy door-default migration during rename.
   for (const floor of project.floors) for (const door of floor.doors) door.flipSide ??= false;
-  await page.addInitScript(project => {
-    localStorage.setItem('floorplan_projects', JSON.stringify({ [project.id]: JSON.stringify(project) }));
+  await seedProjects(request, { [project.id]: project });
+  await page.addInitScript(() => {
     localStorage.setItem('hasSeenWelcome', 'true');
     localStorage.setItem('o3d_locale', 'pt');
-  }, project);
+  });
   await page.setViewportSize({ width: 390, height: 900 });
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Editor de plantas', exact: true })).toBeVisible();

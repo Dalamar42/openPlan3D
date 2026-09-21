@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { readFile } from 'node:fs/promises';
 for (const kind of ['mixed','entourage']) {
   test(`paste the saved ${kind} selection after deletion and repeat with undo`, async ({page}) => {

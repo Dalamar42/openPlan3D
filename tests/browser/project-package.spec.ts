@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page } from './fixtures';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { readPackageZip, packageJSON } from '../../src/lib/utils/projectPackageZip';
@@ -145,11 +145,17 @@ test('package cancellation, invalid file and quota retry preserve the existing l
   expect(await storedRecords(page)).toEqual(before);
   await choose(page);
   await page.evaluate(() => {
+    // Fail the imported project's server write (a create PUT or the restore POST)
+    // with a QuotaExceededError, the server-store analogue of the old IndexedDB stub.
     (window as any).packageQuota = true;
-    const add = IDBObjectStore.prototype.add;
-    IDBObjectStore.prototype.add = function(...args) {
-      if (this.name === 'projects' && (window as any).packageQuota) throw new DOMException('Full', 'QuotaExceededError');
-      return add.apply(this, args);
+    const original = window.fetch.bind(window);
+    window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
+      const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
+      const path = new URL(url, location.origin).pathname;
+      const write = (method === 'PUT' && /^\/api\/projects\/[^/]+$/.test(path)) || (method === 'POST' && path === '/api/projects/restore');
+      if ((window as any).packageQuota && write) return Promise.reject(new DOMException('Full', 'QuotaExceededError'));
+      return original(input as RequestInfo, init);
     };
   });
   await page.getByRole('button', { name: 'Import as copy', exact: true }).click();

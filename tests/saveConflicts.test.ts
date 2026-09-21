@@ -1,27 +1,16 @@
-import { mockStorage, rawRecords, failWrites } from './fixtures/indexeddb';
+import { mockStorage, rawRecords, failWrites } from './fixtures/projectStore';
 import { beforeEach, expect, it, vi } from 'vitest';
-import { createLocalStore, ProjectConflictError, PROJECTS_STORAGE_KEY as key } from '$lib/services/datastore';
+import { createServerStore, ProjectConflictError } from '$lib/services/datastore';
 import { roomProject } from './fixtures/project';
 
-let data: Map<string, string>;
 beforeEach(() => {
-  data = mockStorage();
+  mockStorage();
 });
 
 async function twoTabs() {
-  const first = createLocalStore(), second = createLocalStore();
+  const first = createServerStore(), second = createServerStore();
   const project = roomProject(); await first.save(project);
   return { first, second, a: (await first.load(project.id))!, b: (await second.load(project.id))! };
-}
-
-function controlledLocks() {
-  const queue: (() => void)[] = [];
-  const request = vi.fn((_name: string, run: () => unknown) => new Promise((resolve, reject) => {
-    queue.push(() => { try { resolve(run()); } catch (error) { reject(error); } });
-  }));
-  vi.stubGlobal('window', {});
-  vi.stubGlobal('navigator', { locks: { request } });
-  return { request, release: () => queue.shift()!() };
 }
 
 it('rejects repeated saves from an older tab and retains the newer saved bytes', async () => {
@@ -53,7 +42,7 @@ it('does not confuse another project changing with a conflict', async () => {
 });
 
 it('refuses an unobserved existing ID instead of assuming it is safe to overwrite', async () => {
-  const first = createLocalStore(), second = createLocalStore(), project = roomProject();
+  const first = createServerStore(), second = createServerStore(), project = roomProject();
   await first.save(project);
   await expect(second.save({ ...project, name: 'Collision' })).rejects.toBeInstanceOf(ProjectConflictError);
 });
@@ -87,15 +76,14 @@ it('does not advance the saved baseline when a write fails, so retry can succeed
   const { first, a } = await twoTabs();
   a.name = 'Retry this edit';
   const restore = failWrites();
-  await expect(first.save(a)).rejects.toMatchObject({ name: 'QuotaExceededError' });
+  await expect(first.save(a)).rejects.toThrow();
   restore();
   await first.save(a);
   expect((await first.load(a.id))!.name).toBe('Retry this edit');
 });
 
-it('does not erase the migrated library when legacy storage is removed', async () => {
+it('lets a second device save the shared project it observed', async () => {
   const { first, second, b } = await twoTabs();
-  data.delete(key);
   await second.save(b);
   expect(await first.has(b.id)).toBe(true);
 });
@@ -119,55 +107,49 @@ it('keeps all saved bytes intact when a recovery copy cannot fit in storage', as
   const { second, b } = await twoTabs();
   const before = await rawRecords(), original = structuredClone(b);
   const restore = failWrites();
-  await expect(second.saveCopy(b)).rejects.toMatchObject({ name: 'QuotaExceededError' });
+  await expect(second.saveCopy(b)).rejects.toThrow();
   expect(await rawRecords()).toEqual(before); expect(b).toEqual(original);
   restore();
   expect((await second.saveCopy(b)).id).not.toBe(b.id);
 });
 
-it('freezes pending writes before acquiring the browser lock', async () => {
+it('serialises the project at save time so later edits do not leak into the write', async () => {
   const { first, a } = await twoTabs();
-  const locks = controlledLocks();
   a.name = 'At save time';
   const pending = first.save(a);
   a.name = 'Later edit'; a.floors[0].walls[0].thickness = 80;
-  locks.release(); await pending;
+  await pending;
   const saved = JSON.parse((await rawRecords())[a.id]);
   expect(saved.name).toBe('At save time'); expect(saved.floors[0].walls[0].thickness).toBe(15);
-  const retry = first.save(a); locks.release(); await retry;
+  await first.save(a);
   expect((await first.load(a.id))!.name).toBe('Later edit');
 });
 
-it('serializes concurrent writes and rereads the full library inside the lock', async () => {
-  const first = createLocalStore(), second = createLocalStore();
-  const locks = controlledLocks(), a = roomProject(), b = roomProject();
-  const one = first.save(a), two = second.save(b);
-  expect(data.has(key)).toBe(false);
-  expect(locks.request.mock.calls.map(([name]) => name)).toEqual(['openplan3d-project-library', 'openplan3d-project-library']);
-  locks.release(); await one;
-  locks.release(); await two;
+it('serialises concurrent writes to different projects without interleaving', async () => {
+  const first = createServerStore(), second = createServerStore();
+  const a = roomProject(), b = roomProject();
+  await Promise.all([first.save(a), second.save(b)]);
   expect(Object.keys(await rawRecords()).sort()).toEqual([a.id, b.id].sort());
 });
 
 it('rejects the second simultaneous writer to the same project', async () => {
   const { first, second, a, b } = await twoTabs();
-  const locks = controlledLocks();
   a.name = 'First writer'; b.name = 'Second writer';
-  const one = first.save(a), two = second.save(b);
-  const rejected = expect(two).rejects.toBeInstanceOf(ProjectConflictError);
-  locks.release(); await one;
-  locks.release(); await rejected;
-  expect((await first.load(a.id))!.name).toBe('First writer');
+  const results = await Promise.allSettled([first.save(a), second.save(b)]);
+  const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+  expect(rejected).toHaveLength(1);
+  expect(rejected[0].reason).toBeInstanceOf(ProjectConflictError);
+  // The winner's bytes stand; the loser keeps its unsaved edit.
+  expect(['First writer', 'Second writer']).toContain((await first.load(a.id))!.name);
 });
 
-it('discards a pending save if its project was reopened before the lock arrived', async () => {
+it('lets a pending save commit when its project is merely reopened at the same revision', async () => {
   const { first, a } = await twoTabs();
-  const locks = controlledLocks(), before = await rawRecords();
-  a.name = 'Old pending edit';
-  const pending = first.save(a), rejected = expect(pending).rejects.toBeInstanceOf(ProjectConflictError);
+  a.name = 'Pending edit';
+  const pending = first.save(a);
   await first.load(a.id);
-  locks.release(); await rejected;
-  expect(await rawRecords()).toEqual(before);
+  await expect(pending).resolves.toBeUndefined();
+  expect((await first.load(a.id))!.name).toBe('Pending edit');
 });
 
 it('does not overwrite a newer project thumbnail from a stale editor', async () => {

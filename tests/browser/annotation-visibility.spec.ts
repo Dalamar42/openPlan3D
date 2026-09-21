@@ -1,4 +1,4 @@
-import {test,expect} from '@playwright/test';
+import {test,expect} from './fixtures';
 import {readFile} from 'node:fs/promises';
 for(const [key,category,label] of [['textAnnotations','Text notes','Note 1 (Hidden note)'],['measurements','Measurements','Measurement 1 (200 cm)'],['annotations','Annotations','Annotation 1 (Hidden dimension)']]) {
  test(`${category} visibility preserves data and excludes hidden selections`,async({page})=>{

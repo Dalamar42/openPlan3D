@@ -1,21 +1,19 @@
 import { savedProjects as library, storedRecords, failProjectWrites as failWrites } from './storage';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type APIRequestContext, seedProjects } from './fixtures';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 const fixture = resolve('tests/fixtures/native-import.openplan.json');
-async function seed(page: Page) {
+async function seed(page: Page, request: APIRequestContext) {
   const source = JSON.parse(await readFile(fixture, 'utf8'));
-  await page.addInitScript(source => {
-    if (!localStorage.getItem('floorplan_projects')) {
-      localStorage.setItem('floorplan_projects', JSON.stringify({ [source.id]: JSON.stringify(source) }));
-    }
+  await seedProjects(request, { [source.id]: source });
+  await page.addInitScript(() => {
     localStorage.setItem('hasSeenWelcome', 'true');
     // Keep edits pending throughout UI actions, independent of CI machine speed.
     const timeout = window.setTimeout.bind(window);
     window.setTimeout = ((handler: TimerHandler, delay?: number, ...args: any[]) =>
       timeout(handler, delay === 1000 ? 60_000 : delay, ...args)) as typeof window.setTimeout;
-  }, source);
+  });
   await page.goto(`/editor?id=${source.id}`);
   await expect(page.getByRole('application')).toContainText('1 room');
   return source;
@@ -46,12 +44,12 @@ function observe(page: Page) {
   return () => { expect(errors).toEqual([]); expect(external).toEqual([]); };
 }
 for (const width of [1440, 390]) {
-  test(`same-ID imports preserve pending edits and reopen as separate copies at ${width}px`, async ({ page }, testInfo) => {
+  test(`same-ID imports preserve pending edits and reopen as separate copies at ${width}px`, async ({ page, request }, testInfo) => {
     // This end-to-end case includes multiple downloads, persistence/reloads and
     // a cold 3D renderer. Preserve each phase on slower software-rendered hosts.
     test.slow();
     await page.setViewportSize({ width, height: 900 });
-    const check = observe(page), source = await seed(page);
+    const check = observe(page), source = await seed(page, request);
     const normalized = await exportJSON(page);
     await rename(page, 'Latest original edits');
     expect((await library(page))[source.id].name).toBe(source.name);
@@ -77,8 +75,8 @@ for (const width of [1440, 390]) {
   });
 }
 
-test('a failed current save blocks import and New Project, with backup and retry', async ({ page }) => {
-  const check = observe(page), source = await seed(page);
+test('a failed current save blocks import and New Project, with backup and retry', async ({ page, request }) => {
+  const check = observe(page), source = await seed(page, request);
   await rename(page, 'Unsaved work to recover');
   await failWrites(page);
   const url = page.url(), originalLibrary = await library(page);
@@ -106,8 +104,8 @@ test('a failed current save blocks import and New Project, with backup and retry
   check();
 });
 
-test('a failed candidate save keeps the import in memory and its original safe in the library', async ({ page }) => {
-  const check = observe(page), source = await seed(page);
+test('a failed candidate save keeps the import in memory and its original safe in the library', async ({ page, request }) => {
+  const check = observe(page), source = await seed(page, request);
   const normalized = await exportJSON(page);
   await failWrites(page);
   await importJSON(page);
@@ -126,8 +124,8 @@ test('a failed candidate save keeps the import in memory and its original safe i
   check();
 });
 
-test('sidebar RoomPlan import and toolbar New Project preserve pending predecessor edits', async ({ page }) => {
-  const check = observe(page), source = await seed(page);
+test('sidebar RoomPlan import and toolbar New Project preserve pending predecessor edits', async ({ page, request }) => {
+  const check = observe(page), source = await seed(page, request);
   await rename(page, 'Before RoomPlan import');
   const pending = page.waitForEvent('filechooser');
   await page.getByRole('button', { name: /Import RoomPlan iOS LiDAR scan/ }).click();
@@ -152,8 +150,8 @@ test('sidebar RoomPlan import and toolbar New Project preserve pending predecess
   check();
 });
 
-test('leaving the editor cancels a slow import before it can replace a library project', async ({ page }) => {
-  const check = observe(page), source = await seed(page);
+test('leaving the editor cancels a slow import before it can replace a library project', async ({ page, request }) => {
+  const check = observe(page), source = await seed(page, request);
   await page.evaluate(() => {
     const read = File.prototype.text;
     File.prototype.text = function() {
@@ -171,7 +169,7 @@ test('leaving the editor cancels a slow import before it can replace a library p
   check();
 });
 
-test('welcome and library templates create independent saved projects', async ({ page }) => {
+test('welcome and library templates create independent saved projects', async ({ page, request }) => {
   const check = observe(page);
   await page.goto('/');
   await page.getByRole('button', { name: /Use a Template/ }).click();

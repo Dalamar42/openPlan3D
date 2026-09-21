@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { readFile } from 'node:fs/promises';
 for (const width of [1440,390]) for (const op of ['Align Left','Distribute Horizontally']) {
   test(`${op} aligns saved annotations at ${width}px`, async ({page},testInfo) => {

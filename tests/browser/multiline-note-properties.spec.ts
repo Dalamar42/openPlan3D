@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import { readFile } from 'node:fs/promises';
 for (const width of [1440,390]) test(`multiline note properties preserve line breaks at ${width}px`,async({page},testInfo)=>{
   test.setTimeout(90_000);await page.setViewportSize({width,height:900});

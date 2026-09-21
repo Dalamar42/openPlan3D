@@ -5,8 +5,8 @@ import { projectPackageBytes, readProjectPackage, prepareProjectPackage } from '
 import { readPackageZip, writePackageZip, jsonBytes, packageJSON, crc32 } from '$lib/utils/projectPackageZip';
 import { validatePackagePlan } from '$lib/utils/projectPackageBridge';
 import { roomProject } from './fixtures/project';
-import { mockStorage, rawRecords, failWrites } from './fixtures/indexeddb';
-import { createLocalStore } from '$lib/services/datastore';
+import { mockStorage, rawRecords, failWrites } from './fixtures/projectStore';
+import { createServerStore } from '$lib/services/datastore';
 import { currentProject, loadProject, updateProjectName, createDefaultFloor } from '$lib/stores/project';
 
 const pixel = Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a6WQAAAAASUVORK5CYII=', 'base64'));
@@ -310,12 +310,12 @@ it.each(['missing-photo', 'duplicate-key', 'future-version', 'damaged-geometry',
   if (kind === 'damaged-geometry') { const p = packageJSON(files['plan.json']); p.walls[0].thickness = -1; files['plan.json'] = jsonBytes(p); }
   if (kind === 'incomplete-return') files['web.json'] = jsonBytes(webFixture());
   if (kind === 'reserved-attachment') files['assets/plan.json'] = pixel;
-  const open = vi.spyOn(indexedDB, 'open');
+  const reached = vi.spyOn(globalThis, 'fetch');
   await expect(prepareProjectPackage(new File([writePackageZip(files)], 'bad.zip'))).rejects.toThrow();
-  expect(open).not.toHaveBeenCalled();
+  expect(reached).not.toHaveBeenCalled();
 });
 it('preview is read-only, quota rollback retains existing work, and retry commits one independent copy', async () => {
-  const store = createLocalStore(), source = roomProject(); await store.save(source);
+  const store = createServerStore(), source = roomProject(); await store.save(source);
   loadProject(source); updateProjectName('Pending work');
   const active = get(currentProject), before = await rawRecords();
   const preview = await prepareProjectPackage(new File([writePackageZip(nativeFiles())], 'native.zip'));

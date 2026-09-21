@@ -1,4 +1,4 @@
-import {expect,test} from '@playwright/test';
+import {expect,test} from './fixtures';
 import {readFile} from 'node:fs/promises';
 for(const [key,label] of [['textAnnotations','Copy note'],['measurements','Measurement 1'],['annotations','Annotation 1']]) {
   test(`${key} clipboard survives deletion and supports independent repeat pastes`,async({page})=>{

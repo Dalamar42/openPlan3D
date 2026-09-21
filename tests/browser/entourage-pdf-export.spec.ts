@@ -1,4 +1,4 @@
-import {test,expect} from '@playwright/test';
+import {test,expect} from './fixtures';
 import {readFile} from 'node:fs/promises';
 import {benchmarkProject} from '../fixtures/render-benchmark';
 for(const broken of [false,true]) test(`PDF custom entourage ${broken?'failure':'readiness'} preserves export behavior`,async({page},testInfo)=>{

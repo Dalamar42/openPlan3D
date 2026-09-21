@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 test('Portuguese category filters and accent-free search retain original catalog items', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('o3d_locale', 'pt'));

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import { readFile } from 'node:fs/promises';
 import { benchmarkProject } from '../fixtures/render-benchmark';
 for (const scaled of [false, true]) test(`exports ${scaled ? 'scaled' : 'unscaled'} include oversized rotated furniture outside the wall bounds`,async({page},testInfo)=>{

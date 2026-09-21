@@ -1,4 +1,4 @@
-import { expect, test, type Locator } from '@playwright/test';
+import { expect, test, type Locator } from './fixtures';
 import { readFile } from 'node:fs/promises';
 
 for (const width of [1440, 390]) test(`Portuguese layers preserve visibility, selection and source text at ${width}px`, async ({ page }, testInfo) => {

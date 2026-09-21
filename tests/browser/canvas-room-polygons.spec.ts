@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import { benchmarkProject } from '../fixtures/render-benchmark';
 
 test('room hit polygons and names stay synchronized across floor switches', async ({ page }, testInfo) => {

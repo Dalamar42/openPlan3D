@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { readFile } from 'node:fs/promises';
 
 test('Portuguese command furniture search preserves aliases and keyboard placement IDs', async ({ page }) => {

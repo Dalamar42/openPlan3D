@@ -1,4 +1,4 @@
-import {expect,test} from '@playwright/test';
+import {expect,test} from './fixtures';
 import {readFile} from 'node:fs/promises';
 for(const width of [1440,390]) {
   test(`annotation group selection, drag and deletion at ${width}px`,async({page},testInfo)=>{

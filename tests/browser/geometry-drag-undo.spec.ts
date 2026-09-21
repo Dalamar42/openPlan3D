@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { readFile } from 'node:fs/promises';
 for (const interrupt of [false, true]) {
 for (const kind of ['stair','column','text','endpoint','parallel','curve','room']) {

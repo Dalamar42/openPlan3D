@@ -1,4 +1,4 @@
-import {test,expect} from '@playwright/test';
+import {test,expect} from './fixtures';
 import {readFile} from 'node:fs/promises';
 import {benchmarkProject} from '../fixtures/render-benchmark';
 test('entourage-only SVG embeds custom images and frames rotated vector symbols',async({page},testInfo)=>{

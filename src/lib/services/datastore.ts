@@ -1,7 +1,7 @@
 import { readProject } from '$lib/utils/projectValidation';
 import type { Project } from '$lib/models/types';
-import { withDatabase, transaction, request, records, readRecord, libraryBackup, notifyLibraryChange } from './localDatabase';
-export { PROJECTS_STORAGE_KEY, LIBRARY_CHANGE_KEY } from './localDatabase';
+import { notifyLibraryChange } from './libraryChange';
+export { PROJECTS_STORAGE_KEY, LIBRARY_CHANGE_KEY } from './libraryChange';
 
 export interface DataStore {
   has(id: string): Promise<boolean>;
@@ -17,7 +17,6 @@ export interface DataStore {
   getThumbnails(): Promise<Record<string, string>>;
 }
 
-
 export class ProjectConflictError extends Error {
   constructor() {
     super('This project changed or was deleted in another tab. Save your version as a copy or download a JSON backup to keep both versions.');
@@ -25,15 +24,11 @@ export class ProjectConflictError extends Error {
   }
 }
 
-/** Keep in-document saves ordered; IndexedDB transactions also protect browsers without Web Locks. */
-async function mutateLibrary<T>(change: () => Promise<T>): Promise<T> {
-  if (typeof window !== 'undefined' && typeof navigator !== 'undefined' && navigator.locks?.request) {
-    return navigator.locks.request('openplan3d-project-library', change);
-  }
-  // IndexedDB compare-and-write transactions remain atomic without Web Locks.
-  return change();
-}
-
+/** Keep the existing i18n mapping intact: these strings are the canonical English
+ * diagnostics `projectServiceMessages` translates. A server error carries its own
+ * message and falls through to be shown verbatim. The browser-storage branches
+ * still cover the client's remaining browser work (the backup Blob, the cross-tab
+ * signal). */
 export function storageErrorMessage(error: unknown): string {
   const e = error as { name?: string; code?: number; message?: string } | null;
   if (e?.name === 'QuotaExceededError' || e?.code === 22 || e?.code === 1014) {
@@ -45,9 +40,27 @@ export function storageErrorMessage(error: unknown): string {
   return e?.message || 'Could not save to browser storage. Download your project as JSON to keep a copy.';
 }
 
-/** Preserve the original bytes, including a damaged library, for manual recovery. */
+const BASE = '/api/projects';
+const newId = () => globalThis.crypto?.randomUUID?.() ?? `project-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+
+function api(path: string, init?: RequestInit): Promise<Response> {
+  return fetch(`${BASE}${path}`, { cache: 'no-store', ...init });
+}
+
+/** Map a non-OK write response onto the store's error contract. A precondition
+ * miss (deleted or changed elsewhere) is the conflict flow; an oversized body and
+ * everything else surface as plain messages. */
+function writeFailed(status: number): never {
+  if (status === 409 || status === 412) throw new ProjectConflictError();
+  if (status === 413) throw new Error('This project is too large to store online. Remove some attachments, or download a JSON backup to keep it.');
+  throw new Error('Could not save to the project library. Check your connection and try again.');
+}
+
+/** Recover the whole library, including any recovery archives, as one JSON file. */
 export async function downloadLibraryBackup() {
-  const raw = await libraryBackup();
+  const response = await api('/backup');
+  if (!response.ok) throw new Error('Could not download a library backup. Check your connection and try again.');
+  const raw = await response.text();
   const url = URL.createObjectURL(new Blob([raw], { type: 'application/json' }));
   const link = document.createElement('a');
   link.href = url;
@@ -56,98 +69,89 @@ export async function downloadLibraryBackup() {
   URL.revokeObjectURL(url);
 }
 
-/** Each browser document remembers only revisions it actually opened or saved. */
-export function createLocalStore(): DataStore {
+/** A server-backed project library. The server is the source of truth; each
+ * document remembers the etag it last read so a racing save from another device
+ * fails the compare-and-swap and reuses the conflict flow. */
+export function createServerStore(): DataStore {
   const opened = new Map<string, string | null>();
   const listed = new Map<string, string>();
-  const generations = new Map<string, number>();
-  const check = (id: string, raw: string | null) => {
-    if (raw !== (opened.get(id) ?? null)) throw new ProjectConflictError();
-  };
+  const enc = encodeURIComponent;
   return {
-    async has(id) { return (await readRecord('projects', id)) !== null; },
+    async has(id) {
+      const response = await api(`/${enc(id)}`, { method: 'HEAD' });
+      if (response.ok) return true;
+      if (response.status === 404) return false;
+      throw new Error('Could not reach the project library. Check your connection and try again.');
+    },
 
-    async assertCurrent(id) { check(id, await readRecord('projects', id)); },
+    async assertCurrent(id) {
+      const response = await api(`/${enc(id)}`, { method: 'HEAD' });
+      if (!response.ok && response.status !== 404) throw new Error('Could not reach the project library. Check your connection and try again.');
+      const current = response.ok ? response.headers.get('ETag') : null;
+      if (current !== (opened.get(id) ?? null)) throw new ProjectConflictError();
+    },
 
     async save(project) {
-      const id = project.id, raw = JSON.stringify(project), generation = generations.get(id);
-      await mutateLibrary(async () => {
-        await withDatabase(db => transaction(db, ['projects'], 'readwrite', async tx => {
-          const projects = tx.objectStore('projects');
-          const stored = (await request(projects.get(id))) ?? null;
-          if (generation !== generations.get(id)) throw new ProjectConflictError();
-          check(id, stored);
-          projects.put(raw, id);
-        }));
-        // A successful request alone is not a committed transaction.
-        opened.set(id, raw);
-        notifyLibraryChange(id);
-      });
+      const id = project.id;
+      const known = opened.get(id);
+      const headers: Record<string, string> = typeof known === 'string' ? { 'If-Match': known } : { 'If-None-Match': '*' };
+      const response = await api(`/${enc(id)}`, { method: 'PUT', body: JSON.stringify(project), headers });
+      if (!response.ok) writeFailed(response.status);
+      opened.set(id, response.headers.get('ETag'));
+      notifyLibraryChange(id);
     },
 
     async saveCopy(project, suffix = 'Recovered copy') {
       const copy = readProject(project);
       copy.name = `${copy.name || 'Untitled Project'} (${suffix})`;
       copy.createdAt = copy.updatedAt = new Date();
-      return mutateLibrary(async () => {
-        await withDatabase(db => transaction(db, ['projects'], 'readwrite', async tx => {
-          const projects = tx.objectStore('projects');
-          let attempts = 0;
-          do {
-            if (++attempts > 5) throw new Error('Could not choose a new project ID. Try saving a copy again.');
-            copy.id = globalThis.crypto?.randomUUID?.() ?? `project-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-          } while (await request(projects.get(copy.id)) !== undefined);
-          projects.add(JSON.stringify(copy), copy.id);
-        }));
-        opened.set(copy.id, JSON.stringify(copy));
-        notifyLibraryChange(copy.id);
-        return copy;
-      });
+      let attempts = 0;
+      while (true) {
+        if (++attempts > 5) throw new Error('Could not choose a new project ID. Try saving a copy again.');
+        copy.id = newId();
+        const response = await api(`/${enc(copy.id)}`, { method: 'PUT', body: JSON.stringify(copy), headers: { 'If-None-Match': '*' } });
+        if (response.ok) {
+          opened.set(copy.id, response.headers.get('ETag'));
+          notifyLibraryChange(copy.id);
+          return copy;
+        }
+        if (response.status !== 409 && response.status !== 412) writeFailed(response.status);
+        // A precondition miss means the id already exists; pick another and retry.
+      }
     },
 
     async load(id) {
-      // Invalidate queued saves immediately, including while this read is waiting.
-      generations.set(id, (generations.get(id) ?? 0) + 1);
-      const raw = await readRecord('projects', id);
-      if (raw === null) { opened.set(id, null); return null; }
-      const project = readProject(JSON.parse(raw));
+      const response = await api(`/${enc(id)}`);
+      if (response.status === 404) { opened.set(id, null); return null; }
+      if (!response.ok) throw new Error('Could not open this project. Check your connection and try again.');
+      const project = readProject(JSON.parse(await response.text()));
       if (project.id !== id) throw new Error('The saved project ID does not match its library entry. Download a library backup before recovery.');
-      opened.set(id, raw);
+      opened.set(id, response.headers.get('ETag'));
       return project;
     },
 
     async list() {
-      const all = await withDatabase(db => transaction(db, ['projects'], 'readonly', tx => records(tx, 'projects')));
-      const projects = Object.entries(all).map(([id, raw]) => {
-        try {
-          const p = JSON.parse(raw);
-          if (!p || typeof p.name !== 'string' || typeof p.updatedAt !== 'string' || !Number.isFinite(Date.parse(p.updatedAt))) throw new Error();
-          return { id, name: p.name, updatedAt: p.updatedAt };
-        } catch {
-          // Keep damaged entries visible and deletable without hiding healthy or
-          // restored projects. Opening still validates; backups retain raw bytes.
-          return { id, name: `Unreadable project — ${id}`, updatedAt: new Date(0).toISOString() };
-        }
-      });
+      const response = await api('/');
+      if (!response.ok) throw new Error('Could not read the project library. Check your connection and try again.');
+      const entries = (await response.json()) as { id: string; name: string; updatedAt: string; etag: string; readable: boolean }[];
       listed.clear();
-      for (const [id, raw] of Object.entries(all)) listed.set(id, raw);
-      return projects;
+      return entries.map((entry) => {
+        listed.set(entry.id, entry.etag);
+        // Keep damaged entries visible and deletable; opening still validates.
+        return entry.readable
+          ? { id: entry.id, name: entry.name, updatedAt: entry.updatedAt }
+          : { id: entry.id, name: `Unreadable project — ${entry.id}`, updatedAt: new Date(0).toISOString() };
+      });
     },
 
     async delete(id) {
-      await mutateLibrary(async () => {
-        await withDatabase(db => transaction(db, ['projects', 'thumbnails', 'history'], 'readwrite', async tx => {
-          const projects = tx.objectStore('projects');
-          const expected = listed.has(id) ? listed.get(id) : opened.get(id);
-          if (((await request(projects.get(id))) ?? null) !== (expected ?? null)) throw new ProjectConflictError();
-          projects.delete(id);
-          tx.objectStore('thumbnails').delete(id);
-          tx.objectStore('history').delete(id);
-        }));
-        // Retain the opened revision so this editor cannot recreate a deleted plan.
-        listed.delete(id);
-        notifyLibraryChange(id);
-      });
+      const expected = listed.has(id) ? listed.get(id) : opened.get(id);
+      const headers = typeof expected === 'string' ? { 'If-Match': expected } : undefined;
+      const response = await api(`/${enc(id)}`, { method: 'DELETE', headers });
+      if (!response.ok && response.status !== 204) writeFailed(response.status);
+      // Retain the opened revision so this editor cannot recreate a deleted plan.
+      listed.delete(id);
+      notifyLibraryChange(id);
     },
 
     async duplicate(id) {
@@ -161,23 +165,27 @@ export function createLocalStore(): DataStore {
 
     async saveThumbnail(id, dataUrl) {
       const expected = opened.get(id);
+      if (typeof expected !== 'string') return;
+      // Previews are optional; a failed preview cannot invalidate a saved plan.
       try {
-        await withDatabase(db => transaction(db, ['projects', 'thumbnails'], 'readwrite', async tx => {
-          if (expected === undefined || expected === null || await request(tx.objectStore('projects').get(id)) !== expected) return;
-          tx.objectStore('thumbnails').put(dataUrl, id);
-        }));
-      } catch {} // Previews are optional; a failed preview cannot invalidate a saved plan.
+        await api(`/${enc(id)}/thumbnail`, { method: 'PUT', body: dataUrl, headers: { 'If-Project-Match': expected } });
+      } catch {}
     },
 
     async getThumbnail(id) {
-      try { return await readRecord('thumbnails', id); } catch { return null; }
+      try {
+        const response = await api(`/${enc(id)}/thumbnail`);
+        return response.ok ? await response.text() : null;
+      } catch { return null; }
     },
 
     async getThumbnails() {
-      try { return await withDatabase(db => transaction(db, ['thumbnails'], 'readonly', tx => records(tx, 'thumbnails'))); }
-      catch { return {}; }
+      try {
+        const response = await api('/thumbnails');
+        return response.ok ? ((await response.json()) as Record<string, string>) : {};
+      } catch { return {}; }
     },
   };
 }
 
-export const localStore = createLocalStore();
+export const projectStore = createServerStore();

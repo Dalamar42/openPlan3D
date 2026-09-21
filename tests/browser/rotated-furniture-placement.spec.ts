@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { readFile } from 'node:fs/promises';
 
 for (const placement of [0, 30, 'wall'] as const) test(`furniture placement at ${placement} uses one Undo and restores its final angle`, async ({ page }) => {

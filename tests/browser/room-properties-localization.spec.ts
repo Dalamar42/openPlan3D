@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 import { readFile } from 'node:fs/promises';
 
 test('Portuguese room properties retain names, geometry and material IDs', async ({ page }) => {

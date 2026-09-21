@@ -1,21 +1,20 @@
 import { savedProjects as saved, failProjectWrites } from './storage';
-import { expect, test, type BrowserContext, type Page } from '@playwright/test';
+import { expect, test, type BrowserContext, type Page, type APIRequestContext, seedProjects } from './fixtures';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
-async function seed(context: BrowserContext, neighbor = false) {
+async function seed(request: APIRequestContext, context: BrowserContext, neighbor = false) {
   const source = JSON.parse(await readFile(resolve('tests/fixtures/save-conflicts.openplan.json'), 'utf8'));
-  await context.addInitScript(({ source, neighbor }) => {
-    if (!localStorage.getItem('floorplan_projects')) {
-      const projects: Record<string, string> = { [source.id]: JSON.stringify(source) };
-      if (neighbor) projects['qa-neighbor'] = JSON.stringify({ ...source, id: 'qa-neighbor', name: 'QA Neighbor' });
-      localStorage.setItem('floorplan_projects', JSON.stringify(projects));
-    }
+  const projects: Record<string, unknown> = { [source.id]: source };
+  if (neighbor) projects['qa-neighbor'] = { ...source, id: 'qa-neighbor', name: 'QA Neighbor' };
+  // Both tabs share this one server-side library.
+  await seedProjects(request, projects);
+  await context.addInitScript(() => {
     localStorage.setItem('hasSeenWelcome', 'true');
     const timeout = window.setTimeout.bind(window);
     window.setTimeout = ((handler: TimerHandler, delay?: number, ...args: any[]) =>
       timeout(handler, delay === 1000 ? 60_000 : delay, ...args)) as typeof window.setTimeout;
-  }, { source, neighbor });
+  });
   return source;
 }
 async function rename(page: Page, name: string) {
@@ -39,9 +38,9 @@ function observe(page: Page) {
 }
 
 for (const width of [1440, 390]) {
-  test(`conflicting tabs preserve both versions with backup and copy recovery at ${width}px`, async ({ page, context }, testInfo) => {
+  test(`conflicting tabs preserve both versions with backup and copy recovery at ${width}px`, async ({ page, context, request }, testInfo) => {
     test.setTimeout(180_000);
-    const source = await seed(context), other = await context.newPage();
+    const source = await seed(request, context), other = await context.newPage();
     const check = observe(page), checkOther = observe(other);
     await page.setViewportSize({ width, height: 900 });
     await other.setViewportSize({ width, height: 900 });
@@ -87,8 +86,8 @@ for (const width of [1440, 390]) {
   });
 }
 
-test('deleting a library project cannot be undone by an older editor autosave', async ({ page, context }) => {
-  const source = await seed(context), library = await context.newPage();
+test('deleting a library project cannot be undone by an older editor autosave', async ({ page, context, request }) => {
+  const source = await seed(request, context), library = await context.newPage();
   const check = observe(page), checkLibrary = observe(library);
   await page.goto(`/editor?id=${source.id}`);
   await expect(page.getByRole('application')).toContainText('1 room');
@@ -107,8 +106,8 @@ test('deleting a library project cannot be undone by an older editor autosave', 
   check(); checkLibrary();
 });
 
-test('simultaneous edits to different projects preserve both library entries', async ({ page, context }) => {
-  const source = await seed(context, true), other = await context.newPage();
+test('simultaneous edits to different projects preserve both library entries', async ({ page, context, request }) => {
+  const source = await seed(request, context, true), other = await context.newPage();
   const check = observe(page), checkOther = observe(other);
   await page.goto(`/editor?id=${source.id}`); await other.goto('/editor?id=qa-neighbor');
   await rename(page, 'First independent edit'); await rename(other, 'Second independent edit');
@@ -128,23 +127,32 @@ test('simultaneous edits to different projects preserve both library entries', a
   check(); checkOther();
 });
 
-test('edits made while a recovery copy waits for a lock remain in the current tab', async ({ page, context }) => {
-  const source = await seed(context), other = await context.newPage();
+test('edits made while a recovery copy waits for a lock remain in the current tab', async ({ page, context, request }) => {
+  const source = await seed(request, context), other = await context.newPage();
   const check = observe(page), checkOther = observe(other);
   await page.goto(`/editor?id=${source.id}`); await other.goto(`/editor?id=${source.id}`);
   await rename(page, 'Other tab update'); await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(other.getByRole('alert')).toContainText('another tab');
   await rename(other, 'Copy at click time');
-  // Hold a real browser lock, without blocking the page that needs to stay editable.
-  await page.evaluate(() => new Promise<void>(resolve => {
-    void navigator.locks.request('openplan3d-project-library', () => new Promise<void>(release => {
-      (window as any).releaseLibraryLock = release; resolve();
-    }));
-  }));
+  // Hold the copy's server write in flight so an edit can land before it commits,
+  // the network-boundary equivalent of the former in-page mutation lock.
+  await other.evaluate(() => {
+    (window as any).__holdCopy = true;
+    const original = window.fetch.bind(window);
+    window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
+      const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
+      // Hold only the first copy write; release lets it and every later write through.
+      if ((window as any).__holdCopy && method === 'PUT' && /\/api\/projects\/[^/]+$/.test(new URL(url, location.origin).pathname)) {
+        return new Promise<Response>(resolve => { (window as any).releaseLibraryLock = () => { (window as any).__holdCopy = false; resolve(original(input as RequestInfo, init)); }; });
+      }
+      return original(input as RequestInfo, init);
+    };
+  });
   await other.getByRole('button', { name: 'Save as copy', exact: true }).click();
   await expect(other.getByRole('button', { name: 'Saving copy…', exact: true })).toBeDisabled();
   await rename(other, 'Edited while copy waited');
-  await page.evaluate(() => { (window as any).releaseLibraryLock(); });
+  await other.evaluate(() => { (window as any).releaseLibraryLock(); });
   await expect(other.getByRole('alert')).toContainText('made more edits');
   const stillEditing = await exported(other);
   expect(stillEditing.id).toBe(source.id); expect(stillEditing.name).toBe('Edited while copy waited');

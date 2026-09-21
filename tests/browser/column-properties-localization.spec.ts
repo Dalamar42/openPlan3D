@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { readFile } from 'node:fs/promises';
 
 test('Portuguese column properties retain dimensions when switching shape', async ({ page }) => {

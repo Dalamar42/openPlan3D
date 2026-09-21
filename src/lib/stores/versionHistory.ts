@@ -2,8 +2,8 @@ import { writable, get } from 'svelte/store';
 import { currentProject, loadProject } from './project';
 import { readProject } from '$lib/utils/projectValidation';
 import type { Project } from '$lib/models/types';
-import { readRecord, updateRecord } from '$lib/services/localDatabase';
-import { storageErrorMessage } from '$lib/services/datastore';
+import { ProjectConflictError, storageErrorMessage } from '$lib/services/datastore';
+import { deleteHistory, readHistory, writeHistory } from '$lib/services/historyStore';
 import { readSnapshotStorage, writeSnapshotStorage } from '$lib/utils/snapshotStorage';
 
 export interface Snapshot {
@@ -31,12 +31,12 @@ function parseSnapshots(raw: string | null): Snapshot[] {
 }
 
 export async function getSnapshots(projectId: string): Promise<Snapshot[]> {
-  return parseSnapshots(await readRecord('history', projectId));
+  return parseSnapshots((await readHistory(projectId)).raw);
 }
 
 /** Keep the raw history bytes available even if a snapshot cannot be opened. */
 export async function downloadSnapshotBackup(projectId: string) {
-  const raw = await readRecord('history', projectId);
+  const raw = (await readHistory(projectId)).raw;
   if (raw === null) throw new Error('No saved version history was found.');
   const url = URL.createObjectURL(new Blob([raw], { type: 'application/json' }));
   const link = document.createElement('a');
@@ -52,10 +52,20 @@ export async function saveSnapshot(project: Project, description: string) {
   // Freeze now: the editor may keep changing while storage is busy.
   const snapshot = { timestamp: Date.now(), description, data: JSON.stringify(project) };
   try {
-    await updateRecord('history', project.id, raw => {
+    // Read-modify-write with a compare-and-swap retry: a racing snapshot on the
+    // same project rewinds and reapplies rather than dropping either version.
+    for (let attempt = 0; ; attempt++) {
+      const { raw, etag } = await readHistory(project.id);
       const snapshots = parseSnapshots(raw);
-      return writeSnapshotStorage([...snapshots, snapshot].slice(-MAX_SNAPSHOTS));
-    });
+      const next = writeSnapshotStorage([...snapshots, snapshot].slice(-MAX_SNAPSHOTS));
+      try {
+        await writeHistory(project.id, next, etag);
+        break;
+      } catch (error) {
+        if (error instanceof ProjectConflictError && attempt < 5) continue;
+        throw error;
+      }
+    }
     writeErrors.delete(project.id);
     if (get(currentProject)?.id === project.id) await refreshSnapshots();
     return true;
@@ -88,7 +98,7 @@ export async function restoreSnapshot(projectId: string, index: number, expected
 }
 
 export async function deleteAllSnapshots(projectId: string) {
-  await updateRecord('history', projectId, () => null);
+  await deleteHistory(projectId);
   writeErrors.delete(projectId);
   if (get(currentProject)?.id === projectId) await refreshSnapshots();
 }

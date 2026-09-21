@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 test('Portuguese shortcut help copies localized labels and supports keyboard dismissal', async ({ page }) => {
   await page.addInitScript(() => {

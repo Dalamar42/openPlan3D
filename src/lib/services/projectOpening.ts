@@ -3,7 +3,7 @@ import type { Project } from '$lib/models/types';
 import { currentProject, loadProject } from '$lib/stores/project';
 import { autoSave, saveError, saveState } from '$lib/stores/saveStatus';
 import { readProject } from '$lib/utils/projectValidation';
-import { localStore } from './datastore';
+import { projectStore } from './datastore';
 import { prepareToLeave } from './deployment';
 
 let latestRequest = 0;
@@ -32,14 +32,14 @@ export async function openProject(
     const newId = () => globalThis.crypto?.randomUUID?.() ?? `project-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
     let collision = candidate.id === previous?.id;
     let storageReadable = true;
-    try { collision = await localStore.has(candidate.id) || collision; }
+    try { collision = await projectStore.has(candidate.id) || collision; }
     catch { storageReadable = false; }
     if (collision || !storageReadable) {
       let attempts = 0;
       do {
         if (++attempts > 5) throw new Error('Could not choose a new project ID. Try opening the file again.');
         candidate.id = newId();
-      } while (storageReadable && await localStore.has(candidate.id));
+      } while (storageReadable && await projectStore.has(candidate.id));
       if (collision) candidate.name = `${candidate.name || 'Untitled Project'} (${kind === 'import' ? 'Imported copy' : 'Copy'})`;
       candidate.createdAt = new Date();
     }

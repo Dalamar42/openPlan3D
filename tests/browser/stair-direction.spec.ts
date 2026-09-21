@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { readFile } from 'node:fs/promises';
 for (const kind of ['straight','l-shaped','u-shaped','spiral']) {
   test(`${kind} direction updates arrows and survives undo redo`, async ({ page }, testInfo) => {

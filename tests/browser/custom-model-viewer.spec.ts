@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 test.setTimeout(180_000);
 test('full 3D viewer shares model decoding and releases images when leaving the viewer', async ({ page }, testInfo) => {

@@ -1,14 +1,12 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, seedProjects } from './fixtures';
 import { readFile } from 'node:fs/promises';
 
 for (const width of [1440, 390]) for (const language of ['en', 'pt'] as const) {
-  test(`${language} ${width}: empty undo history supports keyboard entry and dismissal`, async ({ page }) => {
+  test(`${language} ${width}: empty undo history supports keyboard entry and dismissal`, async ({ page, request }) => {
     await page.setViewportSize({ width, height: 900 });
     const project = JSON.parse(await readFile('tests/fixtures/save-conflicts.openplan.json', 'utf8'));
-    await page.addInitScript(({ project, language }) => {
-      localStorage.setItem('o3d_locale', language);
-      localStorage.setItem('floorplan_projects', JSON.stringify({ [project.id]: JSON.stringify(project) }));
-    }, { project, language });
+    await seedProjects(request, { [project.id]: project });
+    await page.addInitScript((language) => localStorage.setItem('o3d_locale', language), language);
     await page.goto(`/editor?id=${project.id}`);
     const toggle = page.getByRole('button', { name: language === 'en' ? 'Toggle Undo History' : 'Alternar histórico de ações', exact: true });
     const region = page.getByRole('region', { name: language === 'en' ? 'Undo History' : 'Histórico de Ações', exact: true });

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { readFile } from 'node:fs/promises';
 // Import, repeated exports and history verification share one bounded workflow.
 test.describe.configure({ timeout: 180_000 });

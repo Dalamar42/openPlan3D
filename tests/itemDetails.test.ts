@@ -10,10 +10,10 @@ import { attachItemPhoto, checkPhotoStorage, deleteUnusedPhoto, photoHeader, pho
 import { currentProject, loadProject, updateItemDetails, commitItemDetails, undo, redo, updateWall, undoHistoryStore } from '$lib/stores/project';
 import { saveSnapshot, getSnapshots, snapshotError } from '$lib/stores/versionHistory';
 import { readSnapshotStorage, writeSnapshotStorage } from '$lib/utils/snapshotStorage';
-import { libraryBackup } from '$lib/services/localDatabase';
-import { createLocalStore } from '$lib/services/datastore';
+import { libraryBackup } from './fixtures/projectStore';
+import { createServerStore } from '$lib/services/datastore';
 import { prepareLibraryRestore } from '$lib/services/libraryRestore';
-import { mockStorage, rawRecords, putRaw, failWrites } from './fixtures/indexeddb';
+import { mockStorage, rawRecords, putRaw, failWrites } from './fixtures/projectStore';
 
 const fixture = () => readProjectPackage(new Uint8Array(readFileSync('tests/fixtures/native-project-package.zip'))).project;
 const target = (p: Project, kind: DetailTarget['kind'], index = 0): DetailTarget => ({ floorId: p.floors[0].id, kind, id: p.floors[0][kind][index].id });
@@ -129,7 +129,7 @@ it('checks image dimensions and accounts for a project and its deduplicated save
 }, 15_000); // Exercises multi-megabyte serialization; this is a quota check, not a speed benchmark.
 it('stores a photo once across saved versions and restores independent copies through library backups', async () => {
   const p = attachItemPhoto(state(), target(state(), 'furniture'), photo); loadProject(p);
-  const store = createLocalStore(); await store.save(p);
+  const store = createServerStore(); await store.save(p);
   for (let i = 0; i < 10; i++) {
     updateItemDetails(target(p, 'furniture'), { note: `Version ${i}` });
     await saveSnapshot(state(), `Version ${i}`);
